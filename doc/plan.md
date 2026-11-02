@@ -161,8 +161,9 @@ only (RFC 0009's rule for content that may not be redistributed).
 - from a **file** chosen in the host (main thread; parsed, then swapped in);
 - **pushed** in-band on its note input as a CLAP `MIDI_SYSEX` event carrying an `oscairn-phrase`
   message (documented in phrase-format.md): slot number plus the phrase text. A future MIDI script
-  block, a sequencer or the host can generate phrases and send them sample-accurately; the plugin
-  parses into a spare slot on the audio thread without allocating and swaps at the next event.
+  block, a sequencer or the host can generate phrases and send them; the audio thread copies the
+  text into a preallocated inbox, the main thread parses it, and the phrase takes over its slot at
+  the next block (a main-thread round trip, not sample-accurate).
 
 ## 4. Oscairn integration
 
