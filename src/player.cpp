@@ -678,8 +678,9 @@ void Player::advanceTo(uint32_t frame) {
                 const Sched* s = kind == 3 ? sched_ : accentSched_;
                 const int count = kind == 3 ? schedCount_ : accentCount_;
                 const double tick = s[which].tick;
+                // Accent tracks play on top of the normal ones (measured), from the accent's own start.
                 for (int i = which; i < count && s[i].tick == tick; ++i)
-                    if (kind == 5 || accent_ != 2) playEvent(s[i].track, phrase_->events[s[i].event], next, f);
+                    playEvent(s[i].track, phrase_->events[s[i].event], next, f);
                 (kind == 3 ? nextPos_ : accentPos_) = std::nextafter(tick, kNever);
                 break;
             }

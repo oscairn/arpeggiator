@@ -345,13 +345,13 @@ TEST(play_only_silences_played_keys) {
     CHECK(onKeys(render(*ph, s, {on(0, 60)}, 480), true) == v({60}));
 }
 
-TEST(accent_switches_to_accent_tracks_for_one_pass) {
+TEST(accent_adds_accent_tracks_for_one_pass) {
     auto ph = phrase("track\n  note 0 k40 v100 g10\n  note 240 k40 v100 g10\nend\ntrack\n  accent\n  note 0 k90 v100 g10\nend\n", "length 480");
     Settings s;
     s.accentThreshold = 100;
     s.accentQuantize = false;
     CHECK(onKeys(render(*ph, s, {on(0, 60, 80)}, 960)) == v({40, 40, 40, 40}));
-    CHECK(onKeys(render(*ph, s, {on(0, 60, 110)}, 960)) == v({90, 40, 40}));
+    CHECK(onKeys(render(*ph, s, {on(0, 60, 110)}, 960)) == v({90, 40, 40, 40, 40}));
     s.accentThreshold = 0;
     CHECK(onKeys(render(*ph, s, {on(0, 60, 127)}, 480)) == v({40, 40}));
 }

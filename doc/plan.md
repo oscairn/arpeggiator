@@ -67,23 +67,23 @@ Measured or explicitly accepted by Jacob.
 
 | # | Rule | Source |
 | --- | --- | --- |
-| R1 | A phrase has up to 16 tracks that play together; each track sounds only while the number of held keys is within its own minimum and maximum. Factory phrases use this to give 1, 2, 3 and 4+ held keys different patterns | To measure |
-| R2 | A track's note list is its template notes (each either following the chord or absolute) followed by the held keys, optionally without the first held key; or only the held keys | To measure |
-| R3 | Held keys are listed by pitch (Sort) or in the order played (Thru); Direct passes the played keys through; Direct alone plays only the phrase's controllers | Manual; to measure |
-| R4 | Template notes that follow the chord move with the lowest held key and snap their 2nd, 3rd/4th, 5th and 6th/7th degrees to the held chord's intervals | To measure |
-| R5 | Twelve selection rules: by position (none, last or first when the list is shorter), bouncing and cycling positions, walkers up, down, up-down (ends once or twice) and random over 1–4 octaves, and style transposition of literal pitches | To measure |
-| R6 | Position notes carry an octave shift of −4 … +3 | To measure |
-| R7 | Octave Range moves the whole phrase one octave further on each repetition until the range is reached, then starts over; for walkers it widens the walked octaves | To measure |
-| R8 | Output Octave Shift moves every chord-relative note; absolute template notes stay | To measure |
-| R9 | Velocity: the phrase's (Original) or the played key's (Thru), times Velocity Rate plus the slot offset; 0 becomes 1, above 127 becomes 127 | Manual; to measure |
-| R10 | Gate: the phrase's gate times Gate Rate plus the slot offset; 0 becomes 1 | Manual; to measure |
-| R11 | Unit Multiply scales event times and gates by 50, 66.7, 75, 100, 133.3, 150, 200, 266.7, 300 or 400 % | Manual; to measure |
-| R12 | Quantize moves events toward the Quantize Value grid by Strength; Swing delays the grid's even-numbered positions | Manual; to measure |
-| R13 | Hold Off stops at the last release; On keeps the chord until the next gesture replaces it; Sync-Off keeps the phrase position running silently | Manual; to measure |
-| R14 | Trigger Toggle: a gesture starts the arp, the next stops it | Manual; to measure |
-| R15 | Loop Off: one pass per gesture | Manual; to measure |
+| R1 | A phrase has up to 16 tracks that play together; each track sounds only while the number of held keys is within its own minimum and maximum. Factory phrases use this to give 1, 2, 3 and 4+ held keys different patterns | Measured for 3 held keys (`rnb3`); keys and timing for 1, 2, 3 held (`pf*_hi`) with the exceptions in section 9 |
+| R2 | A track's note list is its template notes (each either following the chord or absolute) followed by the held keys, optionally without the first held key; or only the held keys | Measured (template + held: `rnb3`) |
+| R3 | Held keys are listed by pitch (Sort) or in the order played (Thru); Direct passes the played keys through; Direct alone plays only the phrase's controllers | Sort and Thru Measured; Direct to measure |
+| R4 | Template notes that follow the chord move with the lowest held key and snap their 2nd, 3rd/4th, 5th and 6th/7th degrees to the held chord's intervals | Measured on a major triad (`rnb3`); other chords to measure |
+| R5 | Twelve selection rules: by position (none, last or first when the list is shorter), bouncing and cycling positions, walkers up, down, up-down (ends once or twice) and random over 1–4 octaves, and style transposition of literal pitches | Measured: index, walker up (1 and 2 octaves), up-down (ends once). Random: timing only (the reference's random sequence is not reproduced, KD13). Others to measure |
+| R6 | Position notes carry an octave shift of −4 … +3 | Measured (−1: `pf*_hi`) |
+| R7 | Octave Range moves the whole phrase one octave further on each repetition until the range is reached, then starts over; for walkers it widens the walked octaves | Walker Measured (+1, `oct_walk`); index phrase: matched notes agree in key and timing, short notes the analysis cannot separate remain (`oct_idx_hi`) |
+| R8 | Output Octave Shift moves every chord-relative note; absolute template notes stay | Measured for chord notes (−1, `outoct_hi`); absolute notes to measure |
+| R9 | Velocity: the phrase's (Original) or the played key's (Thru), times Velocity Rate plus the slot offset; 0 becomes 1, above 127 becomes 127 | Measured: Original, Thru, rate 50 % (non-overlapping notes, KD15) |
+| R10 | Gate: the phrase's gate times Gate Rate plus the slot offset; 0 becomes 1 | Measured: 50 % and 200 % (gate times) |
+| R11 | Unit Multiply scales event times and gates by 50, 66.7, 75, 100, 133.3, 150, 200, 266.7, 300 or 400 % | Measured: 66 % and 200 % |
+| R12 | Quantize moves events toward the Quantize Value grid by Strength; Swing delays the grid's even-numbered positions, with or without quantize strength | Swing timing Measured (+40, with strength 0 and 100); strength between 0 and 100 to measure |
+| R13 | Hold Off stops at the last release, ending sounding notes; On keeps the chord until the next gesture replaces it; Sync-Off ends sounding notes at the release but keeps the phrase position running silently and resumes in place | Measured (`uprel`, `holdon`, `syncoff`) |
+| R14 | Trigger Toggle: a gesture (keys pressed together) starts the arp, the next stops it | Measured (`toggle`) |
+| R15 | Loop Off: one pass per gesture | Measured (`loopoff`) |
 | R16 | Note and velocity limits decide which keys feed the arp; with the arp on, keys outside the note limits do not sound, keys outside the velocity limits play as they are; Low above High selects the outer ranges | Measured (both, normal ranges); inverted ranges to measure |
-| R17 | A played velocity at or above the Accent threshold switches to the phrase's accent tracks for one pass, at the quantize grid if Accent Start Quantize is on | Manual; to measure |
+| R17 | A played velocity at or above the Accent threshold adds the phrase's accent tracks, on top of the normal ones, for one pass, at the quantize grid if Accent Start Quantize is on | Measured: accent tracks add, below the threshold nothing changes (`house_acc`, `house_noacc`); start timing to measure |
 | R18 | Random SFX: a key release plays a random note from the phrase's SFX ranges at a random velocity in its range (or the key's velocity, with Key On Control), plus the velocity offset | Manual; to measure |
 | R19 | Fixed SD/BD maps the phrase's kick and snare variants onto the kit's main kick (36) and snare (38) | To measure |
 | R20 | Phrase controllers (CC, pitch bend, pressure) play on their ticks while the track's held-count range is met and, for tracks with a chord filter, the held chord passes it | To measure |
