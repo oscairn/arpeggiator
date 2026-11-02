@@ -30,6 +30,8 @@ end
 | Statement | Meaning | Default |
 | --- | --- | --- |
 | `name "TEXT"` | Display name, up to 63 bytes | empty |
+| `author "TEXT"` | Who made it, up to 63 bytes | empty |
+| `tags "TEXT"` | Comma-separated tags for library search, up to 127 bytes | empty |
 | `ppq N` | Ticks per quarter note, 24–3840 | 480 |
 | `length N` | Loop length in ticks | 1920 |
 | `meter N D` | Meter, for bar-based changes | 4 4 |

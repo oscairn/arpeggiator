@@ -15,6 +15,7 @@ constexpr int kMaxTemplate = 32;
 constexpr int kMaxRandomize = 4;
 constexpr int kMaxSfx = 8;
 constexpr int kNameSize = 64;
+constexpr int kTagsSize = 128;
 constexpr int kAnyCount = 128;  // "held MIN any"
 
 enum class Source : uint8_t {
@@ -101,6 +102,8 @@ struct Sfx { uint8_t keyLow, keyHigh, velLow, velHigh; uint32_t gate; };
 
 struct Phrase {
     char name[kNameSize] = {};
+    char author[kNameSize] = {};
+    char tags[kTagsSize] = {};  // comma-separated, for library search
     uint32_t ppq = 480;
     uint32_t length = 1920;  // loop length in ticks
     uint8_t meterNum = 4, meterDen = 4;

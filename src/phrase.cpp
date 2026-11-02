@@ -118,7 +118,7 @@ bool parsePhrase(const char* text, size_t size, Phrase& out, char* error, size_t
     out.trackCount = 0;
     out.eventCount = 0;
     out.sfxCount = 0;
-    out.name[0] = 0;
+    out.name[0] = out.author[0] = out.tags[0] = 0;
     out.ppq = 480; out.length = 1920; out.meterNum = 4; out.meterDen = 4;
     out.hasAccent = false;
     const char* w; size_t n; long long v;
@@ -132,11 +132,13 @@ bool parsePhrase(const char* text, size_t size, Phrase& out, char* error, size_t
     while (!c.atEnd()) {
         if (!word(c, w, n)) { nextLine(c); continue; }
         if (!track) {
-            if (eq(w, n, "name")) {
-                if (!word(c, w, n)) return fail("name needs a value");
-                n = std::min(n, size_t(kNameSize - 1));
-                std::memcpy(out.name, w, n);
-                out.name[n] = 0;
+            if (eq(w, n, "name") || eq(w, n, "author") || eq(w, n, "tags")) {
+                char* dst = w[0] == 'n' ? out.name : w[0] == 'a' ? out.author : out.tags;
+                const size_t cap = w[0] == 't' ? size_t(kTagsSize) : size_t(kNameSize);
+                if (!word(c, w, n)) return fail("name, author and tags need a value");
+                n = std::min(n, cap - 1);
+                std::memcpy(dst, w, n);
+                dst[n] = 0;
             } else if (eq(w, n, "ppq")) {
                 if (!wordNumber(c, v, 24, 3840)) return fail("ppq must be 24..3840");
                 out.ppq = uint32_t(v);
@@ -286,12 +288,20 @@ size_t writePhrase(const Phrase& ph, char* out, size_t size) {
             used += size_t(k);
         }
     };
-    char name[kNameSize];
-    size_t j = 0;
-    for (size_t i = 0; i < size_t(kNameSize) && ph.name[i] && j + 1 < sizeof name; ++i)
-        if (ph.name[i] != '"' && ph.name[i] != '\n' && ph.name[i] != '\r') name[j++] = ph.name[i];
-    name[j] = 0;
-    put("oscairn-phrase 1\nname \"%s\"\nppq %u\nlength %u\nmeter %d %d\n", name, ph.ppq, ph.length, ph.meterNum, ph.meterDen);
+    auto clean = [](const char* in, size_t cap, char* out) {
+        size_t j = 0;
+        for (size_t i = 0; i < cap && in[i] && j + 1 < cap; ++i)
+            if (in[i] != '"' && in[i] != '\n' && in[i] != '\r') out[j++] = in[i];
+        out[j] = 0;
+    };
+    char name[kNameSize], author[kNameSize], tags[kTagsSize];
+    clean(ph.name, kNameSize, name);
+    clean(ph.author, kNameSize, author);
+    clean(ph.tags, kTagsSize, tags);
+    put("oscairn-phrase 1\nname \"%s\"\n", name);
+    if (author[0]) put("author \"%s\"\n", author);
+    if (tags[0]) put("tags \"%s\"\n", tags);
+    put("ppq %u\nlength %u\nmeter %d %d\n", ph.ppq, ph.length, ph.meterNum, ph.meterDen);
     for (int i = 0; i < ph.sfxCount; ++i)
         put("sfx %d %d %d %d %u\n", ph.sfx[i].keyLow, ph.sfx[i].keyHigh, ph.sfx[i].velLow, ph.sfx[i].velHigh, ph.sfx[i].gate);
     const Track def{};

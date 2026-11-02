@@ -50,7 +50,7 @@ TEST(phrase_parses_all_event_kinds) {
 TEST(phrase_round_trips_through_text) {
     auto a = std::make_unique<Phrase>(), b = std::make_unique<Phrase>();
     const std::string text =
-        "oscairn-phrase 1\nname \"x\"\nlength 1920\ntrack\n  select up\n  octaves 2\n  channel 10\n  held 4 any\n"
+        "oscairn-phrase 1\nname \"x\"\nauthor \"Jacob Schooley\"\ntags \"bass, 8 steps\"\nlength 1920\ntrack\n  select up\n  octaves 2\n  channel 10\n  held 4 any\n"
         "  note 0 p0 v100 g60\n  cc 5 1 2\nend\ntrack\n  select style\n  chords 0x0f0 0x3ffffffff\n  style 7 8\n"
         "  rule low 1 3 1 5 0 255 4\n  note 10 k36 v100 g60\nend\n";
     CHECK(parse(text, *a));
@@ -61,6 +61,8 @@ TEST(phrase_round_trips_through_text) {
     std::string again(65536, '\0');
     again.resize(writePhrase(*b, again.data(), again.size()));
     CHECK(out == again);
+    CHECK(!std::strcmp(b->author, "Jacob Schooley"));
+    CHECK(!std::strcmp(b->tags, "bass, 8 steps"));
     CHECK_EQ(b->tracks[0].octaves, 2);
     CHECK_EQ(b->tracks[0].channel, 10);
     CHECK_EQ(b->tracks[1].first, 2);
