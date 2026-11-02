@@ -15,6 +15,7 @@
 
 #include "phrase.h"
 #include "player.h"
+#include "record.h"
 
 namespace {
 
@@ -29,12 +30,15 @@ const char* const kUnit[] = {"50%", "66%", "75%", "100%", "133%", "150%", "200%"
 const char* const kGrid[] = {"60", "80", "120", "160", "240", "320", "480"};
 const char* const kSync[] = {"Off", "60", "80", "120", "160", "240", "320", "480"};
 const char* const kChange[] = {"Real-time", "Measure"};
+const char* const kRecord[] = {"Off", "Armed"};
+const char* const kConvert[] = {"Fixed", "Relative", "Chord"};
 const int kGridTicks[] = {60, 80, 120, 160, 240, 320, 480};
 
 enum : clap_id {
     pSwitch = 1, pHold, pKeyMode, pVelMode, pTrigger, pLoop, pPlayOnly, pUnit, pQuantize, pStrength, pSwing,
     pVelRate, pGateRate, pOctRange, pOutOct, pNoteLow, pNoteHigh, pVelLow, pVelHigh, pChange, pAccent, pAccentQ,
-    pSfx, pSfxVel, pSfxKey, pSdBd, pSync, pSlot, pSlotVel1, pSlotGate1 = pSlotVel1 + 8, pEnd = pSlotGate1 + 8
+    pSfx, pSfxVel, pSfxKey, pSdBd, pSync, pSlot, pSlotVel1, pSlotGate1 = pSlotVel1 + 8, pRecord = pSlotGate1 + 8,
+    pRecordBars, pRecordConvert, pEnd
 };
 
 const ParamInfo kBase[] = {
@@ -68,11 +72,17 @@ const ParamInfo kBase[] = {
     {pSlot, "Slot", "Phrases", 0, 7, 0, nullptr},
 };
 constexpr int kBaseCount = int(sizeof kBase / sizeof kBase[0]);
-constexpr int kParamCount = kBaseCount + 16;
+const ParamInfo kRecordParams[] = {
+    {pRecord, "Record", "Record", 0, 1, 0, kRecord},
+    {pRecordBars, "Record Bars", "Record", 1, 8, 1, nullptr},
+    {pRecordConvert, "Record Convert", "Record", 0, 2, 2, kConvert},
+};
+constexpr int kParamCount = kBaseCount + 16 + 3;
 
 bool paramInfo(int index, ParamInfo& p, char* name, size_t nameSize) {
     if (index < 0 || index >= kParamCount) return false;
     if (index < kBaseCount) { p = kBase[index]; std::snprintf(name, nameSize, "%s", p.name); return true; }
+    if (index >= kBaseCount + 16) { p = kRecordParams[index - kBaseCount - 16]; std::snprintf(name, nameSize, "%s", p.name); return true; }
     const int k = index - kBaseCount, slot = k % 8;
     const bool gate = k >= 8;
     p = {clap_id((gate ? pSlotGate1 : pSlotVel1) + slot), name, "Phrases", -100, 100, 0, nullptr};
@@ -129,7 +139,10 @@ struct Plugin {
     std::atomic<size_t> inboxSize{0};  // nonzero: full, owned by the main thread until cleared
     std::atomic<int> inboxSlot{0};
     bool playing = false, transportSeen = false;
-    uint32_t seed = 1;
+    // Record mode: the audio thread captures while recordState is 1; 2 hands the notes to the main thread.
+    arp::Recorder recorder;
+    std::atomic<int> recordState{0};
+    double recordClock = 0, recordTicksPerFrame = 0;
 
     static Plugin& of(const clap_plugin_t* p) { return *static_cast<Plugin*>(p->plugin_data); }
 
@@ -169,7 +182,7 @@ struct Plugin {
 
     arp::Settings settings() const {
         arp::Settings s;
-        s.on = ival(pSwitch) != 0;
+        s.on = ival(pSwitch) != 0 && recordState.load(std::memory_order_relaxed) != 1;
         s.hold = arp::HoldMode(std::clamp(ival(pHold), 0, 2));
         s.keyMode = arp::KeyMode(std::clamp(ival(pKeyMode), 0, 4));
         s.velocityMode = arp::VelocityMode(ival(pVelMode) != 0);
@@ -246,6 +259,12 @@ struct Plugin {
 
     void mainThread() {
         for (int s = 0; s < arp::kSlots; ++s) delete retired[s].exchange(nullptr);
+        if (recordState.load(std::memory_order_acquire) == 2) {
+            const std::string t = arp::recordedPhrase(recorder.notes(), recorder.count(), recorder.length(),
+                                                      arp::RecordMode(std::clamp(ival(pRecordConvert), 0, 2)), "Recorded");
+            if (recorder.count()) install(std::clamp(ival(pSlot), 0, 7), t.data(), t.size());
+            recordState.store(0, std::memory_order_release);
+        }
         if (const size_t n = inboxSize.load(std::memory_order_acquire)) {
             install(inboxSlot.load(std::memory_order_relaxed), reinterpret_cast<const char*>(inbox.get()), n);
             inboxSize.store(0, std::memory_order_release);
@@ -318,8 +337,10 @@ struct Plugin {
                 if (n.key < 0 || n.key > 127 || n.channel < 0 || n.channel > 15) return;
                 if (h->type == CLAP_EVENT_NOTE_ON) {
                     const int v = std::clamp(int(std::lround((std::isfinite(n.velocity) ? n.velocity : 0) * 127)), 1, 127);
+                    if (recordState.load(std::memory_order_relaxed) == 1) recorder.keyOn(recordClock + frame * recordTicksPerFrame, n.key, v);
                     player.keyOn(frame, n.channel, n.key, v, n.note_id);
                 } else {
+                    if (recordState.load(std::memory_order_relaxed) == 1) recorder.keyOff(recordClock + frame * recordTicksPerFrame, n.key);
                     player.keyOff(frame, n.channel, n.key, n.note_id);
                     noteEnd(n, frame, out);
                 }
@@ -330,8 +351,10 @@ struct Plugin {
                 const auto& m = *reinterpret_cast<const clap_event_midi_t*>(h);
                 if (m.port_index != 0) return;
                 const int kind = m.data[0] & 0xF0, ch = m.data[0] & 15;
-                if (kind == 0x90 && m.data[2]) { player.keyOn(frame, ch, m.data[1] & 127, m.data[2] & 127, -1); return; }
-                if (kind == 0x80 || kind == 0x90) { player.keyOff(frame, ch, m.data[1] & 127, -1); return; }
+                const bool rec = recordState.load(std::memory_order_relaxed) == 1;
+                const double recTick = recordClock + frame * recordTicksPerFrame;
+                if (kind == 0x90 && m.data[2]) { if (rec) recorder.keyOn(recTick, m.data[1] & 127, m.data[2] & 127); player.keyOn(frame, ch, m.data[1] & 127, m.data[2] & 127, -1); return; }
+                if (kind == 0x80 || kind == 0x90) { if (rec) recorder.keyOff(recTick, m.data[1] & 127); player.keyOff(frame, ch, m.data[1] & 127, -1); return; }
                 if (kind == 0xB0 && m.data[1] == 64 && player.settings().on) { player.sustain(frame, ch, m.data[2] >= 64); return; }
                 if (kind == 0xB0 && (m.data[1] == 120 || m.data[1] == 123)) { player.advance(frame); recover(frame, out); }
                 player.advance(frame);
@@ -364,6 +387,16 @@ struct Plugin {
             playing = nowPlaying;
             transportSeen = true;
         }
+        recordTicksPerFrame = clock.tempo / 60.0 * 480.0 / rate;
+        const bool wantRecord = ival(pRecord) != 0;
+        if (wantRecord && recordState.load(std::memory_order_acquire) == 0) {
+            recorder.arm(uint32_t(std::clamp(ival(pRecordBars), 1, 8)) * 1920u);
+            recordState.store(1, std::memory_order_release);
+        } else if (!wantRecord && recordState.load(std::memory_order_relaxed) == 1) {
+            recorder.disarm();
+            recordState.store(0, std::memory_order_release);
+        }
+        player.setSettings(settings());
         player.begin(clock, b->frames_count, sink);
         const uint32_t count = b->in_events ? b->in_events->size(b->in_events) : 0;
         for (uint32_t i = 0; i < count; ++i) {
@@ -374,6 +407,17 @@ struct Plugin {
         }
         player.end();
         if (player.overflowed()) recover(b->frames_count ? b->frames_count - 1 : 0, b->out_events);
+        recordClock += recordTicksPerFrame * b->frames_count;
+        if (recordState.load(std::memory_order_relaxed) == 1 && recorder.advance(recordClock)) {
+            // Done: switch Record off, tell the host, and let the main thread make the phrase.
+            values[paramIndex(pRecord)].store(0, std::memory_order_relaxed);
+            clap_event_param_value_t pv{};
+            pv.header = {sizeof pv, b->frames_count ? b->frames_count - 1 : 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+            pv.param_id = pRecord; pv.note_id = -1; pv.port_index = -1; pv.channel = -1; pv.key = -1; pv.value = 0;
+            b->out_events->try_push(b->out_events, &pv.header);
+            recordState.store(2, std::memory_order_release);
+            if (host && host->request_callback) host->request_callback(host);
+        }
         sink.out = nullptr;
         return player.idle() ? CLAP_PROCESS_SLEEP : CLAP_PROCESS_CONTINUE;
     }
@@ -481,7 +525,7 @@ const clap_plugin_params_t kParams = {
         if (p.texts && k >= p.min && k <= p.max) std::snprintf(out, size, "%s", p.texts[k - int(p.min)]);
         else if (id == pSlot) std::snprintf(out, size, "%d", k + 1);
         else if (id == pAccent && k == 0) std::snprintf(out, size, "Off");
-        else if (id == pVelRate || id == pGateRate || id == pStrength || id >= pSlotVel1) std::snprintf(out, size, "%d%%", k);
+        else if (id == pVelRate || id == pGateRate || id == pStrength || (id >= pSlotVel1 && id < pRecord)) std::snprintf(out, size, "%d%%", k);
         else if (id == pNoteLow || id == pNoteHigh) {
             static const char* names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
             std::snprintf(out, size, "%s%d", names[k % 12], k / 12 - 2);

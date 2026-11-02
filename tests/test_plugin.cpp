@@ -146,7 +146,7 @@ int main(int argc, char** argv) {
         CHECK(audio && audio->count(in.p, true) == 0 && audio->count(in.p, false) == 0);
         CHECK(notes && notes->count(in.p, true) == 1 && notes->count(in.p, false) == 1);
         const uint32_t n = in.params->count(in.p);
-        CHECK(n == 44);
+        CHECK(n == 47);
         std::vector<clap_id> ids;
         for (uint32_t i = 0; i < n; ++i) {
             clap_param_info_t info;
@@ -226,6 +226,26 @@ int main(int argc, char** argv) {
         long when = -1;
         for (auto& n : out.notes) if (n.type == CLAP_EVENT_NOTE_CHOKE) { ++chokes; when = n.frame; }
         CHECK(chokes == 1 && when >= 6000 && when < 6000 + 256);
+    }
+
+    {  // record mode: one bar of played notes becomes the selected slot's phrase
+        Instance in(factory);
+        OutEvents out;
+        // Arm, then play C and E together and G an eighth later (24000 frames per quarter at 120 BPM, 48 kHz).
+        in.run(out, {at(0, param(45, 1)), at(1000, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(1000, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2)),
+                     at(13000, note(CLAP_EVENT_NOTE_ON, 0, 67, 0.8, 3)), at(20000, note(CLAP_EVENT_NOTE_OFF, 0, 67, 0, 3)),
+                     at(30000, note(CLAP_EVENT_NOTE_OFF, 0, 60, 0, 1)), at(30000, note(CLAP_EVENT_NOTE_OFF, 0, 64, 0, 2))}, 100000, 256);
+        CHECK(ons(out) == std::vector<int>({60, 64, 67}));  // played through while recording
+        double v = 1;
+        CHECK(in.params->get_value(in.p, 45, &v) && v == 0);  // switched itself off after the bar
+        in.p->on_main_thread(in.p);
+        Stream st;
+        CHECK(in.state->save(in.p, &st.out));
+        CHECK(st.data.find("note 0 p0 v") != std::string::npos);
+        CHECK(st.data.find("note 240 r67") != std::string::npos);
+        OutEvents o2;
+        in.run(o2, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 62, 0.8, 9)), at(0, note(CLAP_EVENT_NOTE_ON, 0, 66, 0.8, 10))}, 20000, 256, 100000);
+        CHECK(ons(o2) == std::vector<int>({62, 66, 69}));  // the recorded phrase, on a D chord
     }
 
     {  // a phrase pushed on the note input is installed by the main thread

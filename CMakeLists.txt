@@ -9,7 +9,7 @@ add_library(clap_headers INTERFACE)
 target_include_directories(clap_headers INTERFACE third_party/clap/include)
 
 # The phrase model and player, shared by the plugin, the tests and the tools.
-add_library(arp_engine STATIC src/phrase.cpp src/player.cpp)
+add_library(arp_engine STATIC src/phrase.cpp src/player.cpp src/record.cpp)
 target_include_directories(arp_engine PUBLIC src)
 target_compile_options(arp_engine PRIVATE -Wall -Wextra)
 
@@ -24,7 +24,7 @@ add_executable(arp-render tools/arp_render.cpp)
 target_link_libraries(arp-render PRIVATE arp_engine)
 
 enable_testing()
-add_executable(arp_tests tests/test_main.cpp tests/test_player.cpp tests/test_phrase.cpp)
+add_executable(arp_tests tests/test_main.cpp tests/test_player.cpp tests/test_phrase.cpp tests/test_record.cpp)
 target_link_libraries(arp_tests PRIVATE arp_engine)
 add_test(NAME engine COMMAND arp_tests)
 
