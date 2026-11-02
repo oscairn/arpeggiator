@@ -345,6 +345,12 @@ RFC 0032 (Oscairn's side of the arpeggiator) was read at Oscairn commit 6396d9c 
   key (engine and worker, 256- and 37-sample blocks; fails with the plugin from before the change).
   Oscairn's sessions give each part the harmony of its own input, so a chord from another Part is
   given at the graph level here.
+  **Stopped here (2026-11-02):** the converted-Performance steps cannot run against Oscairn 3b58efe
+  with converter output as of 373f088: loading it fails with "Invalid instrument pool snapshot"
+  (the converter writes `state 1` snapshots where Oscairn's pooled instruments expect `pool 1`).
+  The hosted check of optional phrase assets (deleted assets: loads with a notice, plays the same,
+  re-save keeps them optional) is written but not committed or run until the converter is fixed.
+  Chord Source is done: built, unit-, plugin- and hosted-tested.
 - **Recording by playing:** the plugin has its own record mode (Record, Record Bars, Record Convert;
   phrase-format.md), which works in any CLAP host and needs nothing from Oscairn. RFC 0032's host
   note capture with a **Make phrase** action would give retroactive capture; it should call the same
