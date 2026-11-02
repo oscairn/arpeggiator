@@ -1,0 +1,284 @@
+// SPDX-License-Identifier: MIT
+// Loads the built plugin and checks it as a host would: descriptor and ports, parameters, notes in and
+// out at any block size, state round trip with phrases, phrases pushed on the note input, and main-thread
+// calls running while another thread processes (for ThreadSanitizer).
+#include <clap/clap.h>
+#include <dlfcn.h>
+
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <thread>
+#include <vector>
+
+static int failures = 0;
+#define CHECK(c) do { if (!(c)) { ++failures; std::printf("  %s:%d: CHECK(%s) failed\n", __FILE__, __LINE__, #c); } } while (0)
+
+namespace {
+
+std::atomic<int> callbacks{0};
+const clap_host_t kHost = {CLAP_VERSION, nullptr, "test", "oscairn", "", "1",
+                           [](const clap_host_t*, const char*) -> const void* { return nullptr; },
+                           [](const clap_host_t*) {}, [](const clap_host_t*) {},
+                           [](const clap_host_t*) { ++callbacks; }};
+
+struct InEvents {
+    std::vector<std::vector<uint8_t>> events;
+    clap_input_events_t api{this, [](const clap_input_events_t* l) { return uint32_t(static_cast<const InEvents*>(l->ctx)->events.size()); },
+                            [](const clap_input_events_t* l, uint32_t i) {
+                                return reinterpret_cast<const clap_event_header_t*>(static_cast<const InEvents*>(l->ctx)->events[i].data());
+                            }};
+    template <class T> void add(const T& e) { events.emplace_back(reinterpret_cast<const uint8_t*>(&e), reinterpret_cast<const uint8_t*>(&e) + sizeof e); }
+};
+struct OutEvents {
+    struct Note { int type; long frame; int key; int channel; int id; double velocity; };
+    std::vector<Note> notes;
+    long base = 0;
+    clap_output_events_t api{this, [](const clap_output_events_t* l, const clap_event_header_t* h) {
+        auto* o = static_cast<OutEvents*>(l->ctx);
+        if (h->type == CLAP_EVENT_NOTE_ON || h->type == CLAP_EVENT_NOTE_OFF || h->type == CLAP_EVENT_NOTE_END || h->type == CLAP_EVENT_NOTE_CHOKE) {
+            const auto* n = reinterpret_cast<const clap_event_note_t*>(h);
+            o->notes.push_back({h->type, o->base + h->time, n->key, n->channel, n->note_id, n->velocity});
+        }
+        return true;
+    }};
+};
+
+clap_event_note_t note(uint16_t type, uint32_t time, int key, double vel = 0.8, int id = -1) {
+    clap_event_note_t e{};
+    e.header = {sizeof e, time, CLAP_CORE_EVENT_SPACE_ID, type, 0};
+    e.note_id = id; e.port_index = 0; e.channel = 0; e.key = int16_t(key); e.velocity = vel;
+    return e;
+}
+clap_event_param_value_t param(clap_id id, double v) {
+    clap_event_param_value_t e{};
+    e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+    e.param_id = id; e.note_id = -1; e.port_index = -1; e.channel = -1; e.key = -1; e.value = v;
+    return e;
+}
+
+struct Instance {
+    const clap_plugin_t* p;
+    const clap_plugin_params_t* params;
+    const clap_plugin_state_t* state;
+    Instance(const clap_plugin_factory_t* f) {
+        p = f->create_plugin(f, &kHost, "org.oscairn.arpeggiator");
+        p->init(p);
+        params = static_cast<const clap_plugin_params_t*>(p->get_extension(p, CLAP_EXT_PARAMS));
+        state = static_cast<const clap_plugin_state_t*>(p->get_extension(p, CLAP_EXT_STATE));
+        p->activate(p, 48000, 1, 4096);
+        p->start_processing(p);
+    }
+    ~Instance() { p->stop_processing(p); p->deactivate(p); p->destroy(p); }
+    // Renders `frames`, delivering each timed input in the block that contains it.
+    void run(OutEvents& out, std::vector<std::pair<long, std::vector<uint8_t>>> in, long frames, uint32_t block, long start = 0, long playingUntil = -1) {
+        size_t k = 0;
+        for (long pos = start; pos < start + frames; pos += block) {
+            const uint32_t n = uint32_t(std::min<long>(block, start + frames - pos));
+            InEvents ev;
+            while (k < in.size() && in[k].first < pos + n) {
+                ev.events.push_back(in[k].second);
+                reinterpret_cast<clap_event_header_t*>(ev.events.back().data())->time = uint32_t(std::max<long>(0, in[k].first - pos));
+                ++k;
+            }
+            out.base = pos;
+            clap_event_transport_t tr{};
+            tr.header = {sizeof tr, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_TRANSPORT, 0};
+            tr.flags = CLAP_TRANSPORT_HAS_TEMPO | (pos < playingUntil ? CLAP_TRANSPORT_IS_PLAYING : 0);
+            tr.tempo = 120;
+            clap_process_t b{};
+            b.steady_time = pos; b.frames_count = n; b.transport = &tr; b.in_events = &ev.api; b.out_events = &out.api;
+            p->process(p, &b);
+        }
+    }
+};
+template <class T> std::pair<long, std::vector<uint8_t>> at(long frame, const T& e) {
+    return {frame, std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(&e), reinterpret_cast<const uint8_t*>(&e) + sizeof e)};
+}
+
+struct Stream {
+    std::string data;
+    size_t pos = 0;
+    clap_ostream_t out{this, [](const clap_ostream_t* s, const void* b, uint64_t n) -> int64_t {
+        static_cast<Stream*>(s->ctx)->data.append(static_cast<const char*>(b), n); return int64_t(n); }};
+    clap_istream_t in{this, [](const clap_istream_t* s, void* b, uint64_t n) -> int64_t {
+        auto* st = static_cast<Stream*>(s->ctx);
+        const size_t k = std::min<size_t>(n, std::min<size_t>(7, st->data.size() - st->pos));  // short reads on purpose
+        std::memcpy(b, st->data.data() + st->pos, k); st->pos += k; return int64_t(k); }};
+};
+
+const char* kUp = "oscairn-phrase 1\nname \"up\"\nlength 480\ntrack\n  select up\n  note 0 p0 v100 g60\n  note 120 p0 v100 g60\n"
+                  "  note 240 p0 v100 g60\n  note 360 p0 v100 g60\nend\n";
+
+std::string stateWith(const char* phrase, int slot = 0) {
+    std::string t = phrase;
+    return "oscairn-arpeggiator 1\nslot " + std::to_string(slot) + " " + std::to_string(t.size()) + "\n" + t + "\n";
+}
+bool load(Instance& in, const std::string& s) {
+    Stream st;
+    st.data = s;
+    return in.state->load(in.p, &st.in);
+}
+std::vector<int> ons(const OutEvents& o) {
+    std::vector<int> k;
+    for (auto& n : o.notes) if (n.type == CLAP_EVENT_NOTE_ON) k.push_back(n.key);
+    return k;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    if (argc < 2) { std::printf("usage: plugin_tests PLUGIN.clap\n"); return 2; }
+    void* lib = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+    if (!lib) { std::printf("dlopen: %s\n", dlerror()); return 1; }
+    auto* entry = static_cast<const clap_plugin_entry_t*>(dlsym(lib, "clap_entry"));
+    CHECK(entry && entry->init(argv[1]));
+    auto* factory = static_cast<const clap_plugin_factory_t*>(entry->get_factory(CLAP_PLUGIN_FACTORY_ID));
+    CHECK(factory && factory->get_plugin_count(factory) == 1);
+    CHECK(!std::strcmp(factory->get_plugin_descriptor(factory, 0)->id, "org.oscairn.arpeggiator"));
+
+    {  // ports and parameters
+        Instance in(factory);
+        auto* audio = static_cast<const clap_plugin_audio_ports_t*>(in.p->get_extension(in.p, CLAP_EXT_AUDIO_PORTS));
+        auto* notes = static_cast<const clap_plugin_note_ports_t*>(in.p->get_extension(in.p, CLAP_EXT_NOTE_PORTS));
+        CHECK(audio && audio->count(in.p, true) == 0 && audio->count(in.p, false) == 0);
+        CHECK(notes && notes->count(in.p, true) == 1 && notes->count(in.p, false) == 1);
+        const uint32_t n = in.params->count(in.p);
+        CHECK(n == 44);
+        std::vector<clap_id> ids;
+        for (uint32_t i = 0; i < n; ++i) {
+            clap_param_info_t info;
+            CHECK(in.params->get_info(in.p, i, &info));
+            CHECK(info.min_value <= info.default_value && info.default_value <= info.max_value);
+            for (clap_id id : ids) CHECK(id != info.id);
+            ids.push_back(info.id);
+        }
+        char text[64];
+        CHECK(in.params->value_to_text(in.p, 8, 6, text, sizeof text) && !std::strcmp(text, "200%"));
+    }
+
+    {  // notes in and out, independent of block size
+        std::vector<int> keys[2];
+        std::vector<long> frames[2];
+        const uint32_t blocks[2] = {37, 512};
+        for (int b = 0; b < 2; ++b) {
+            Instance in(factory);
+            CHECK(load(in, stateWith(kUp)));
+            in.p->on_main_thread(in.p);
+            OutEvents out;
+            in.run(out, {at(100, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(100, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2)),
+                         at(48000, note(CLAP_EVENT_NOTE_OFF, 0, 60, 0, 1)), at(48000, note(CLAP_EVENT_NOTE_OFF, 0, 64, 0, 2))},
+                   72000, blocks[b]);
+            keys[b] = ons(out);
+            for (auto& x : out.notes) frames[b].push_back(x.frame);
+            int ends = 0;
+            for (auto& x : out.notes) ends += x.type == CLAP_EVENT_NOTE_END;
+            CHECK(ends == 2);
+        }
+        CHECK(keys[0] == keys[1] && frames[0] == frames[1]);
+        CHECK(keys[0].size() == 8 && keys[0][0] == 60 && keys[0][1] == 64 && keys[0][2] == 60);
+    }
+
+    {  // without a phrase or with the switch off, keys pass straight through
+        Instance in(factory);
+        OutEvents out;
+        in.run(out, {at(10, note(CLAP_EVENT_NOTE_ON, 0, 61, 0.5, 7)), at(500, note(CLAP_EVENT_NOTE_OFF, 0, 61, 0, 7))}, 1000, 128);
+        CHECK(ons(out) == std::vector<int>({61}));
+        Instance off(factory);
+        CHECK(load(off, stateWith(kUp)));
+        off.p->on_main_thread(off.p);
+        OutEvents o2;
+        off.run(o2, {at(0, param(1, 0)), at(10, note(CLAP_EVENT_NOTE_ON, 0, 62, 0.5, 7))}, 48000, 256);
+        CHECK(ons(o2) == std::vector<int>({62}));
+    }
+
+    {  // state round trip keeps parameters and phrases; bad states are refused
+        Instance a(factory);
+        CHECK(load(a, stateWith(kUp, 3)));
+        OutEvents o;
+        a.run(o, {at(0, param(8, 6)), at(0, param(28, 3))}, 64, 64);
+        Stream st;
+        CHECK(a.state->save(a.p, &st.out));
+        Instance b(factory);
+        Stream st2;
+        st2.data = st.data;
+        CHECK(b.state->load(b.p, &st2.in));
+        double v = 0;
+        CHECK(b.params->get_value(b.p, 8, &v) && v == 6);
+        Stream st3;
+        CHECK(b.state->save(b.p, &st3.out));
+        CHECK(st3.data == st.data);
+        CHECK(st.data.find("slot 3") != std::string::npos);
+        CHECK(!load(b, "nonsense"));
+        CHECK(!load(b, stateWith("oscairn-phrase 1\ntrack\n  note 0 q1 v1 g1\nend\n")));
+        CHECK(!load(b, "oscairn-arpeggiator 1\nslot 0 99999\nshort"));
+    }
+
+    {  // the transport stopping ends what sounds
+        Instance in(factory);
+        CHECK(load(in, stateWith(kUp)));
+        in.p->on_main_thread(in.p);
+        OutEvents out;
+        in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1))}, 12000, 256, 0, 6000);
+        int chokes = 0;
+        long when = -1;
+        for (auto& n : out.notes) if (n.type == CLAP_EVENT_NOTE_CHOKE) { ++chokes; when = n.frame; }
+        CHECK(chokes == 1 && when >= 6000 && when < 6000 + 256);
+    }
+
+    {  // a phrase pushed on the note input is installed by the main thread
+        Instance in(factory);
+        std::vector<uint8_t> sx = {0xF0, 0x7D, 'O', 'P', 'H', 'R', 0};
+        sx.insert(sx.end(), kUp, kUp + std::strlen(kUp));
+        sx.push_back(0xF7);
+        clap_event_midi_sysex_t e{};
+        e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI_SYSEX, 0};
+        e.port_index = 0; e.buffer = sx.data(); e.size = uint32_t(sx.size());
+        OutEvents out;
+        const int before = callbacks.load();
+        in.run(out, {at(0, e)}, 256, 256);
+        CHECK(callbacks.load() > before);
+        in.p->on_main_thread(in.p);
+        in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(0, note(CLAP_EVENT_NOTE_ON, 0, 67, 0.8, 2))}, 24000, 256, 256);
+        CHECK(ons(out).size() == 4 && ons(out)[1] == 67);
+    }
+
+    {  // main-thread calls race with processing on another thread
+        Instance in(factory);
+        CHECK(load(in, stateWith(kUp)));
+        in.p->on_main_thread(in.p);
+        std::atomic<bool> done{false};
+        std::thread audio([&] {
+            OutEvents out;
+            std::vector<std::pair<long, std::vector<uint8_t>>> evs;
+            for (long f = 0; f < 480000; f += 9000) {
+                evs.push_back(at(f, note(CLAP_EVENT_NOTE_ON, 0, 60 + int(f / 9000 % 12), 0.7, int(f))));
+                evs.push_back(at(f + 4000, note(CLAP_EVENT_NOTE_OFF, 0, 60 + int(f / 9000 % 12), 0, int(f))));
+            }
+            in.run(out, evs, 480000, 128);
+            done = true;
+        });
+        int saves = 0;
+        while (!done) {
+            double v;
+            in.params->get_value(in.p, 12, &v);
+            Stream st;
+            in.state->save(in.p, &st.out);
+            in.p->on_main_thread(in.p);
+            Stream ld;
+            ld.data = stateWith(kUp, saves % 8);
+            in.state->load(in.p, &ld.in);
+            ++saves;
+        }
+        audio.join();
+        in.p->on_main_thread(in.p);
+        CHECK(saves > 0);
+    }
+
+    entry->deinit();
+    dlclose(lib);
+    std::printf("%s (%d failed checks)\n", failures ? "FAIL" : "ok", failures);
+    return failures ? 1 : 0;
+}
