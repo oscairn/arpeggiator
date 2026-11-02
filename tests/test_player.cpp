@@ -362,20 +362,22 @@ TEST(random_sfx_plays_at_release_within_its_ranges) {
     auto ph = phrase("track\n  note 0 p0 v100 g60\nend\n", "length 480\nsfx 120 122 30 50 100");
     Settings s;
     s.sfxKeyVelocity = false;
-    const auto ev = render(*ph, s, {on(0, 60, 90), off(200, 60)}, 480);
+    // A release the arpeggio plays on through sounds an SFX note; the last release, which ends it, none.
+    const auto ev = render(*ph, s, {on(0, 60, 90), on(0, 64, 90), off(200, 60), off(400, 64)}, 600);
     const auto keys = onKeys(ev);
-    CHECK(keys.size() == 2 && keys[1] >= 120 && keys[1] <= 122);
-    CHECK(ev.size() >= 3);
-    for (const auto& e : ev) if (e.type == ON && e.key >= 120) CHECK(e.value >= 30 && e.value <= 50);
-    // The SFX note lasts its own gate even though the release stopped the arpeggio.
+    int sfx = 0;
+    for (int k : keys) sfx += k >= 120;
+    CHECK(sfx == 1);
+    for (const auto& e : ev) if (e.type == ON && e.key >= 120) CHECK(e.value >= 30 && e.value <= 50 && e.key <= 122);
     long sfxOn = -1, sfxOff = -1;
     for (const auto& e : ev) if (e.key >= 120) (e.type == ON ? sfxOn : sfxOff) = e.frame;
-    CHECK(sfxOn == 200 * kTick && sfxOff == 300 * kTick);
+    CHECK(sfxOn == 200 * kTick && sfxOff == 300 * kTick);  // at the release, for its own gate
+    CHECK(onKeys(render(*ph, s, {on(0, 60, 90), off(200, 60)}, 480)).size() == 1);  // the only key: no SFX
     s.sfxKeyVelocity = true;
     s.sfxVelocityOffset = 10;
-    for (const auto& e : render(*ph, s, {on(0, 60, 90), off(200, 60)}, 480)) if (e.type == ON && e.key >= 120) CHECK_EQ(e.value, 100);
+    for (const auto& e : render(*ph, s, {on(0, 60, 90), on(0, 64, 90), off(200, 60)}, 480)) if (e.type == ON && e.key >= 120) CHECK_EQ(e.value, 100);
     s.randomSfx = false;
-    CHECK(onKeys(render(*ph, s, {on(0, 60, 90), off(200, 60)}, 480)).size() == 1);
+    CHECK(onKeys(render(*ph, s, {on(0, 60, 90), on(0, 64, 90), off(200, 60)}, 480)).size() == 1);  // switched off: the arp note alone
 }
 
 TEST(fixed_sd_bd_maps_kick_and_snare_variants) {

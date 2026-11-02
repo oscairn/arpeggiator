@@ -391,9 +391,10 @@ void Player::keyOff(uint32_t frame, int channel, int key, int32_t inputId) {
         --heldCount_;
     }
     detectChord();
-    const bool sfx = running_ && audible_;
     releaseKeysOff(frame);
-    if (sfx) playSfx(frame, channel, velocity);  // after a stop, so the stop does not cut it
+    // Only a release the arpeggio plays on through sounds an SFX note: the release that ends it plays
+    // none (measured: releases one by one sound two, the last none).
+    if (running_ && audible_) playSfx(frame, channel, velocity);
 }
 
 // After a release: with nothing left to play, Hold Off stops and Sync-Off goes silent.
