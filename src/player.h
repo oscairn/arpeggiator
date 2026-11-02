@@ -117,7 +117,9 @@ private:
 
     void advanceTo(uint32_t frame);
     void playEvent(int trackIndex, const Event& e, double clockTick, uint32_t frame);
-    void playStyle(const Track& t, const Event& e, int channel, double clockTick, uint32_t frame);
+    void playStyle(const Track& t, const Event& e, int channel, double clockTick, uint32_t frame, int fixedKey = -1);
+    void playStyleGroup(int trackIndex, const int* events, int count, double clockTick, uint32_t frame);
+    bool trackPlays(const Track& t) const;
     int buildList(const Track& t, Entry* out, Entry& first) const;
     void sendNote(const Track& t, uint32_t frame, int channel, int key, int velocity7, uint32_t gate, double clockTick);
     void noteOn(uint32_t frame, int channel, int key, uint16_t velocity, double offTick, int32_t inputId, bool pass);

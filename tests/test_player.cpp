@@ -557,3 +557,16 @@ TEST(timing_is_the_same_at_every_sample_rate) {
         }
     }
 }
+
+TEST(root_fixed_style_voices_move_together_to_the_held_chord) {
+    // Measured (MA_Soul 1 _C): G B E G written for C maj7, root fixed, plays G C E G on C, A C F A on
+    // D minor 7 and F B D F on G 7: tones in the voices' register, four-tone chords without their root,
+    // every tone covered, least motion, ties upward.
+    auto ph = phrase("track\n  select style\n  style 0 2\n  rule low 1 2 0 7 0 127 1\n  rule mid 1 2 0 7 0 127 1\n"
+                     "  rule high 1 2 0 7 0 127 1\n  note 0 k55 v80 g10\n  note 0 k59 v80 g10\n  note 0 k64 v80 g10\n"
+                     "  note 0 k67 v80 g10\nend\n", "length 480");
+    auto voiced = [&](std::vector<Key> keys) { auto k = onKeys(render(*ph, {}, keys, 100)); std::sort(k.begin(), k.end()); return k; };
+    CHECK(voiced({on(0, 60), on(0, 64), on(0, 67)}) == v({55, 60, 64, 67}));
+    CHECK(voiced({on(0, 62), on(0, 65), on(0, 69), on(0, 72)}) == v({57, 60, 65, 69}));
+    CHECK(voiced({on(0, 55), on(0, 59), on(0, 62), on(0, 65)}) == v({53, 59, 62, 65}));
+}

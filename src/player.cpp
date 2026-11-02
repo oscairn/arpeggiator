@@ -473,10 +473,15 @@ void Player::sendNote(const Track& t, uint32_t frame, int channel, int key, int 
     noteOn(frame, channel, key, uint16_t(v), clockTick + g, -1, false);
 }
 
+bool Player::trackPlays(const Track& t) const {
+    const int n = heldCount_;
+    return n >= t.minHeld && (t.maxHeld >= kAnyCount || n <= t.maxHeld);
+}
+
 void Player::playEvent(int ti, const Event& e, double clockTick, uint32_t frame) {
     const Track& t = phrase_->tracks[ti];
     const int n = heldCount_;
-    if (n < t.minHeld || (t.maxHeld < kAnyCount && n > t.maxHeld)) return;
+    if (!trackPlays(t)) return;
     const int channel = t.channel ? t.channel - 1 : lastChannel_;
     const bool chordOk = chordType_ < 35 && (t.rootMask >> chordRoot_ & 1) && (t.typeMask >> chordType_ & 1);
     if (e.type != EventType::Note) {
@@ -588,9 +593,73 @@ void Player::playEvent(int ti, const Event& e, double clockTick, uint32_t frame)
     }
 }
 
+// The notes a style track starts together are voiced together: its root-fixed voices move to tones
+// of the held chord in their own register, a chord of four or more tones leaving out its root, every
+// tone used where there are voices enough, with the least motion and ties going up (measured on a
+// major triad, a minor 7th and a dominant 7th: G B E G written for C maj7 plays G C E G, A C F A and
+// F B D F). Other voices go one by one through playStyle.
+void Player::playStyleGroup(int ti, const int* events, int count, double clockTick, uint32_t frame) {
+    const Track& t = phrase_->tracks[ti];
+    if (!trackPlays(t) || settings_.keyMode == KeyMode::Direct) return;
+    const bool chordOk = chordType_ < 35 && (t.rootMask >> chordRoot_ & 1) && (t.typeMask >> chordType_ & 1);
+    if (!chordOk) return;
+    const int channel = t.channel ? t.channel - 1 : lastChannel_;
+    int lo = t.styleLow, hi = t.styleHigh;
+    if (hi < lo + 11) { lo = hi - 11; if (lo < 0) { lo = 0; hi = 11; } }
+    constexpr int kVoices = 8;
+    int voice[kVoices], source[kVoices], nv = 0;
+    for (int i = 0; i < count; ++i) {
+        const Event& e = phrase_->events[events[i]];
+        const StyleRule& rule = t.rules[e.key < lo ? 0 : e.key > hi ? 2 : 1];
+        if (rule.transpose == 1 && nv < kVoices) { voice[nv] = events[i]; source[nv++] = e.key; }
+        else playStyle(t, e, channel, clockTick, frame);
+    }
+    if (!nv) return;
+    // The tones to voice: the held chord's pitch classes, without the root from four tones up.
+    const int target = chordType_ < 34 ? chordType_ : 30;
+    const int root = chordRoot_;
+    uint16_t tones = 0;
+    for (int pc = 0; pc < 12; ++pc) if (kChordShapes[target] >> pc & 1) tones |= uint16_t(1u << ((pc + root) % 12));
+    int toneCount = 0;
+    for (int pc = 0; pc < 12; ++pc) toneCount += tones >> pc & 1;
+    if (toneCount >= 4) { tones &= uint16_t(~(1u << root)); --toneCount; }
+    // Each voice's candidates: the nearest tone below (or at) and above it.
+    int cand[kVoices][2];
+    for (int v = 0; v < nv; ++v) {
+        int down = 0, up = 0;
+        while (!(tones >> (((source[v] - down) % 12 + 12) % 12) & 1) && down < 12) ++down;
+        while (!(tones >> ((source[v] + up) % 12) & 1) && up < 12) ++up;
+        cand[v][0] = -down; cand[v][1] = up;
+    }
+    // Least total motion covering min(voices, tones) distinct tones; ties: more upward motion.
+    const int need = std::min(nv, toneCount);
+    int best = -1, bestCost = 1 << 30, bestUp = -(1 << 30);
+    for (int mask = 0; mask < (1 << nv); ++mask) {
+        uint16_t used = 0;
+        int cost = 0, up = 0;
+        for (int v = 0; v < nv; ++v) {
+            const int d = cand[v][mask >> v & 1];
+            used |= uint16_t(1u << (((source[v] + d) % 12 + 12) % 12));
+            cost += std::abs(d);
+            up += d;
+        }
+        int covered = 0;
+        for (int pc = 0; pc < 12; ++pc) covered += used >> pc & 1;
+        if (covered < need) continue;
+        if (cost < bestCost || (cost == bestCost && up > bestUp)) { best = mask; bestCost = cost; bestUp = up; }
+    }
+    for (int v = 0; v < nv; ++v) {
+        int d = cand[v][0];
+        if (best >= 0) d = cand[v][best >> v & 1];
+        else if (cand[v][1] < -cand[v][0]) d = cand[v][1];
+        playStyle(t, phrase_->events[voice[v]], channel, clockTick, frame, source[v] + d);
+    }
+}
+
 // Style tracks: the event's key is a source pitch written for (styleRoot, styleType); move it to the
-// held chord. An approximation of root transposition plus chord-tone mapping (plan R25).
-void Player::playStyle(const Track& t, const Event& e, int channel, double clockTick, uint32_t frame) {
+// held chord. Root-transposed voices move with the root and map chord tones (an approximation, plan
+// R25); root-fixed voices arrive with their key chosen by playStyleGroup.
+void Player::playStyle(const Track& t, const Event& e, int channel, double clockTick, uint32_t frame, int fixedKey) {
     int lo = t.styleLow, hi = t.styleHigh;
     if (hi < lo + 11) { lo = hi - 11; if (lo < 0) { lo = 0; hi = 11; } }
     const StyleRule& rule = t.rules[e.key < lo ? 0 : e.key > hi ? 2 : 1];
@@ -607,13 +676,7 @@ void Player::playStyle(const Track& t, const Event& e, int channel, double clock
     else if (degree == fifthOf(from) && fifthOf(to) >= 0) delta = fifthOf(to) - degree;
     else if (degree == seventhOf(from)) delta = seventhOf(to) >= 0 ? seventhOf(to) - degree : (to & 0x200 ? 9 - degree : 0);
     if (rule.transpose == 1) {
-        // Root fixed: keep the register, move to the nearest tone of the held chord.
-        int best = 99;
-        for (int d = -6; d <= 6; ++d) {
-            const int pc = ((key + d - root) % 12 + 12) % 12;
-            if ((to >> pc & 1) && std::abs(d) < std::abs(best)) best = d;
-        }
-        key += best == 99 ? 0 : best;
+        key = fixedKey >= 0 ? fixedKey : key;
     } else {
         int s = ((root - t.styleRoot) % 12 + 12) % 12;
         if (s > rule.highKey) s -= 12;
@@ -680,8 +743,20 @@ void Player::advanceTo(uint32_t frame) {
                 const int count = kind == 3 ? schedCount_ : accentCount_;
                 const double tick = s[which].tick;
                 // Accent tracks play on top of the normal ones (measured), from the accent's own start.
-                for (int i = which; i < count && s[i].tick == tick; ++i)
-                    playEvent(s[i].track, phrase_->events[s[i].event], next, f);
+                // Style notes starting together on a track are voiced together, after the others.
+                // (Events at a tick are in event order, so each track's are next to each other.)
+                int style[64], styleCount = 0;
+                for (int i = which; i < count && s[i].tick == tick; ++i) {
+                    const Event& ev = phrase_->events[s[i].event];
+                    if (phrase_->tracks[s[i].track].select == Select::Style && ev.type == EventType::Note && styleCount < 64)
+                        style[styleCount++] = i;
+                    else playEvent(s[i].track, ev, next, f);
+                }
+                for (int a = 0, b = 0; a < styleCount; a = b) {
+                    int group[64], n = 0;
+                    for (b = a; b < styleCount && s[style[b]].track == s[style[a]].track; ++b) group[n++] = s[style[b]].event;
+                    playStyleGroup(s[style[a]].track, group, n, next, f);
+                }
                 (kind == 3 ? nextPos_ : accentPos_) = std::nextafter(tick, kNever);
                 break;
             }
