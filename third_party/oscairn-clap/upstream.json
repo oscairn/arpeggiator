@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/oscairn/oscairn",
   "path": "core/clap-ext/include/oscairn-clap",
-  "commit": "b8ba09f",
-  "note": "beat.h only, unchanged; MIT like the rest of core/clap-ext."
+  "commit": "3b58efe",
+  "note": "beat.h and assets.h only, unchanged; MIT like the rest of core/clap-ext."
 }
