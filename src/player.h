@@ -98,6 +98,8 @@ public:
     void advance(uint32_t frame) { advanceTo(frame); }  // render up to `frame` before passing other input on
     void end();
 
+    // The host jumped: a running phrase starts again (at the next Sync Quantize line, if set).
+    void relocate(uint32_t frame);
     // Ends every sounding note at `frame` and forgets held keys (stop, reset, choke all).
     void panic(uint32_t frame);
     bool overflowed() const { return overflow_; }

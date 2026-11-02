@@ -77,7 +77,8 @@ struct Instance {
     }
     ~Instance() { p->stop_processing(p); p->deactivate(p); p->destroy(p); }
     // Renders `frames`, delivering each timed input in the block that contains it.
-    void run(OutEvents& out, std::vector<std::pair<long, std::vector<uint8_t>>> in, long frames, uint32_t block, long start = 0, long playingUntil = -1) {
+    void run(OutEvents& out, std::vector<std::pair<long, std::vector<uint8_t>>> in, long frames, uint32_t block, long start = 0, long playingUntil = -1,
+             long jumpAt = -1) {
         size_t k = 0;
         for (long pos = start; pos < start + frames; pos += block) {
             const uint32_t n = uint32_t(std::min<long>(block, start + frames - pos));
@@ -90,7 +91,10 @@ struct Instance {
             out.base = pos;
             clap_event_transport_t tr{};
             tr.header = {sizeof tr, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_TRANSPORT, 0};
-            tr.flags = CLAP_TRANSPORT_HAS_TEMPO | (pos < playingUntil ? CLAP_TRANSPORT_IS_PLAYING : 0);
+            tr.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | (pos < playingUntil ? CLAP_TRANSPORT_IS_PLAYING : 0);
+            // Beats follow the frames (120 BPM, 48 kHz), plus ten beats once past jumpAt.
+            const double beats = pos / 24000.0 + (jumpAt >= 0 && pos >= jumpAt ? 10 : 0);
+            tr.song_pos_beats = clap_beattime(std::llround(beats * CLAP_BEATTIME_FACTOR));
             tr.tempo = 120;
             clap_process_t b{};
             b.steady_time = pos; b.frames_count = n; b.transport = &tr; b.in_events = &ev.api; b.out_events = &out.api;
@@ -262,6 +266,19 @@ int main(int argc, char** argv) {
         OutEvents o2;
         in.run(o2, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 62, 0.8, 9)), at(0, note(CLAP_EVENT_NOTE_ON, 0, 66, 0.8, 10))}, 20000, 256, 100000);
         CHECK(ons(o2) == std::vector<int>({62, 66, 69}));  // the recorded phrase, on a D chord
+    }
+
+    {  // a relocation while playing starts the phrase again
+        Instance in(factory);
+        CHECK(load(in, stateWith(kUp)));
+        in.p->on_main_thread(in.p);
+        OutEvents out;
+        in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(0, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2)),
+                     at(0, note(CLAP_EVENT_NOTE_ON, 0, 67, 0.8, 3))}, 16000, 256, 0, 1 << 30, 8960);
+        std::vector<long> f;
+        for (auto& n : out.notes) if (n.type == CLAP_EVENT_NOTE_ON) f.push_back(n.frame);
+        CHECK(ons(out) == std::vector<int>({60, 64, 60, 64}));
+        CHECK(f.size() == 4 && f[2] == 8960 && f[3] == 14960);
     }
 
     {  // a phrase pushed on the note input is installed by the main thread

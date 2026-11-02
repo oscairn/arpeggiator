@@ -143,6 +143,10 @@ struct Plugin {
     arp::Recorder recorder;
     std::atomic<int> recordState{0};
     double recordClock = 0, recordTicksPerFrame = 0;
+    // The host's beat position at the last block, to notice relocations while playing.
+    double lastBeats = 0, lastBeatsPerFrame = 0;
+    uint32_t lastFrames = 0;
+    bool lastHadBeats = false;
 
     static Plugin& of(const clap_plugin_t* p) { return *static_cast<Plugin*>(p->plugin_data); }
 
@@ -412,6 +416,12 @@ struct Plugin {
         }
         player.setSettings(settings());
         player.begin(clock, b->frames_count, sink);
+        if (clock.hasBeats && lastHadBeats && std::fabs(clock.beats - (lastBeats + lastFrames * lastBeatsPerFrame)) > 1e-3)
+            player.relocate(0);
+        lastHadBeats = clock.hasBeats;
+        lastBeats = clock.beats;
+        lastFrames = b->frames_count;
+        lastBeatsPerFrame = clock.tempo / 60.0 / rate;
         const uint32_t count = b->in_events ? b->in_events->size(b->in_events) : 0;
         for (uint32_t i = 0; i < count; ++i) {
             const clap_event_header_t* h = b->in_events->get(b->in_events, i);

@@ -271,6 +271,14 @@ void Player::startPhrase(uint32_t frame) {
     }
 }
 
+void Player::relocate(uint32_t frame) {
+    advanceTo(frame);
+    if (!running_) return;
+    const bool audible = audible_;
+    startPhrase(frame);
+    audible_ = audible;
+}
+
 void Player::stopArp(uint32_t frame) {
     running_ = audible_ = false;
     startAt_ = -1;

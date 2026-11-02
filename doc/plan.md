@@ -285,8 +285,8 @@ with it except where noted:
   and emits none, so the push cannot reach a MIDI out through it. Filtering `7D` at hardware MIDI
   outs (for messages sent past the arpeggiator) is the host's side.
 - **Stopped transport:** see 4.2; the plugin uses its own clock until the free-running beat exists.
-  RFC 0032 also asks that a song-position jump while playing restarts phrases at the next grid
-  line; not implemented yet (KD7).
+  A song-position jump while playing starts a running phrase again, at the next Sync Quantize line
+  when one is set (RFC 0032).
 - **Recording by playing:** the plugin has its own record mode (Record, Record Bars, Record Convert;
   phrase-format.md), which works in any CLAP host and needs nothing from Oscairn. RFC 0032's host
   note capture with a **Make phrase** action would give retroactive capture; it should call the same
@@ -310,7 +310,6 @@ reproduce, where in the code. Entries are added as measurements find them and re
 | KD4 | Walkers have no octave ceiling: octaves plus the full Octave Range are walked | Walker tracks with many octaves and a large positive Octave Range; the reference may limit the span (to measure) | Jacob's rule: no limit beyond parameter ranges | Deliberate | `octaves 4` phrase with Octave Range +3 | `Player::playEvent`, walker branch |
 | KD5 | A key-count remapping field in the instrument's arp files (unused by every factory file) has no equivalent | None in factory content | No data uses it | Deliberate | The extractor's report lists any file that sets it | extractor (outside this repo) |
 | KD6 | Sync Quantize with the transport stopped aligns to the instance's own clock, not a shared grid | Parts started together on a stopped transport may differ by up to one grid step | No shared beat while stopped (RFC 0032 step 3) | Deliberate until the host adds the beat | Two instances activated at different times, transport stopped, Sync Quantize 480 | `Player::startPhrase` |
-| KD7 | A song-position jump while playing does not restart phrases at the next grid line | Hosts that relocate while playing | Not implemented | Unresolved | Relocate the transport while a phrase plays | `Plugin::process` |
 | KD9 | Pushed phrases take over a block after the main thread parses them, not at the event's sample | All pushes | Parsing must not run unbounded on the audio thread | Deliberate | `tests/test_plugin.cpp`, push case | `Plugin::sysex`, `Plugin::mainThread` |
 | KD10 | SysEx other than the push message is dropped, not passed on | Any SysEx on the note input | Keeps private messages inside the plugin | Deliberate | Send any SysEx through | `Plugin::sysex` |
 | KD11 | Literal-note and fallback events of user arps recorded on the instrument are not converted | User arps made with the instrument's recording (none in Jacob's set) | No sample files to verify their layout | Unresolved | Convert such a file; the report names it | extractor |
