@@ -8,6 +8,9 @@
 //   4. with an archive: a converted Performance installs as a library, loads with the arpeggiator
 //      and the engine (no stand-ins), plays repeated notes with the arpeggiator on and one with it
 //      off, and saves and loads again with the same state and the same audio.
+//   5. Chord Source Harmony: the chord held in a lower zone, given to the arpeggiator as its harmony
+//      (oscairn.harmony) while its own input hears only the upper zone, drives the phrase; the key
+//      in the upper zone starts it. Off, the arpeggiator plays its own key.
 //   arp-hosted-test ARP.clap WORKER PUSHER.clap [ARCHIVE.olib PERFORMANCE_ID]
 #include "oscairn/graph.h"
 #include "oscairn/session.h"
@@ -209,6 +212,33 @@ int main(int argc, char** argv) {
                 check(!ons[0].empty() && !ons[1].empty() && ons[0][0].at == ons[1][0].at && ons[0][0].at == 48000,
                       "both start on the same beat line (" + where(w, b) + "): " + keys(ons[0], 1) + "/ " + keys(ons[1], 1));
             }
+    }
+
+    {  // 5. the chord from oscairn.harmony
+        oscairn::NoteZone lower, upper;
+        lower.highKey = 59;
+        upper.lowKey = 60;
+        std::vector<Input> in = {{100, Event::note(true, 48, .8, 0, 0, 0, 1)}, {100, Event::note(true, 52, .8, 0, 0, 0, 2)},
+                                 {100, Event::note(true, 55, .8, 0, 0, 0, 3)}, {3000, Event::note(true, 84, .8, 0, 0, 0, 4)}};
+        for (int source : {1, 0}) {
+            const auto state = stateDir(tmp, "harmony" + std::to_string(source), stateText(kUp, "param 1 1\nparam 48 " + std::to_string(source) + "\n"));
+            for (bool w : {false, true})
+                for (uint32_t b : {256u, 37u}) {
+                    auto ons = render(worker, w, b, 30000, in, [&](oscairn::Graph& g, Recorder& rec, int64_t at) {
+                        if (at) return;
+                        const auto n = g.add(arp, "org.oscairn.arpeggiator");
+                        g.host(n).loadState(state);
+                        g.connectNotes(oscairn::graphInput, n, {upper});
+                        g.setHarmonies({{1, {n}, true, {lower}, 0, 1}});
+                        g.commit();
+                        rec.nodes[0] = n;
+                    })[0];
+                    const std::vector<Note> want = source ? std::vector<Note>{{3000, 48}, {9000, 52}, {15000, 55}, {21000, 48}, {27000, 52}}
+                                                          : std::vector<Note>{{3000, 84}, {9000, 84}, {15000, 84}, {21000, 84}, {27000, 84}};
+                    check(ons == want, std::string(source ? "Chord Source Harmony plays the lower zone's chord" : "Chord Source Own keys plays its own key") +
+                                           " (" + where(w, b) + "): " + keys(ons));
+                }
+        }
     }
 
     if (argc == 6) {  // 4. a converted Performance
