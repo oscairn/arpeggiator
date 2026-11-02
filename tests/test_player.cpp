@@ -331,7 +331,9 @@ TEST(note_and_velocity_limits_with_inverted_ranges) {
     Settings vs;
     vs.velocityLow = 90;
     vs.velocityHigh = 40;
-    CHECK(onKeys(render(*ph, vs, {on(0, 60, 60)}, 480)).empty());
+    const auto quiet = render(*ph, vs, {on(0, 60, 60)}, 480);
+    CHECK(onKeys(quiet).empty());                         // not arpeggiated ...
+    CHECK(quiet.size() == 1 && quiet[0].inputId == 0);   // ... but played as it is
     CHECK(onKeys(render(*ph, vs, {on(0, 60, 100)}, 480)) == v({60}));
 }
 

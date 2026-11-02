@@ -321,10 +321,10 @@ void Player::keyOn(uint32_t frame, int channel, int key, int velocity, int32_t i
     const KeyMode km = settings_.keyMode;
     const bool direct = km == KeyMode::Direct || km == KeyMode::SortDirect || km == KeyMode::ThruDirect;
     const bool active = settings_.on && phrase_;
-    // With the arpeggio on, keys outside its note or velocity limits are ignored (measured: they do
-    // not sound); with it off every key passes through.
-    if (active && !(inNoteRange(key) && inVelocityRange(velocity))) return;
-    const bool arpKey = active;
+    // With the arpeggio on, keys outside its note limits do not sound, while keys outside its velocity
+    // limits play as they are (both measured); with it off every key passes through.
+    if (active && !inNoteRange(key)) return;
+    const bool arpKey = active && inVelocityRange(velocity);
     if ((!arpKey || direct) && !(settings_.playOnly && settings_.on))
         noteOn(frame, channel, key, velocity16(velocity), kNever, inputId, true);
     if (!arpKey || heldCount_ == kMaxHeld) return;

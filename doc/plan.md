@@ -82,7 +82,7 @@ Measured or explicitly accepted by Jacob.
 | R13 | Hold Off stops at the last release; On keeps the chord until the next gesture replaces it; Sync-Off keeps the phrase position running silently | Manual; to measure |
 | R14 | Trigger Toggle: a gesture starts the arp, the next stops it | Manual; to measure |
 | R15 | Loop Off: one pass per gesture | Manual; to measure |
-| R16 | Note and velocity limits decide which keys feed the arp; with the arp on, keys outside them do not sound; Low above High selects the outer ranges | Note limit Measured (keys outside are silent); velocity limit to measure |
+| R16 | Note and velocity limits decide which keys feed the arp; with the arp on, keys outside the note limits do not sound, keys outside the velocity limits play as they are; Low above High selects the outer ranges | Measured (both, normal ranges); inverted ranges to measure |
 | R17 | A played velocity at or above the Accent threshold switches to the phrase's accent tracks for one pass, at the quantize grid if Accent Start Quantize is on | Manual; to measure |
 | R18 | Random SFX: a key release plays a random note from the phrase's SFX ranges at a random velocity in its range (or the key's velocity, with Key On Control), plus the velocity offset | Manual; to measure |
 | R19 | Fixed SD/BD maps the phrase's kick and snare variants onto the kit's main kick (36) and snare (38) | To measure |
