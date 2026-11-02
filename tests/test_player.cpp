@@ -289,12 +289,16 @@ TEST(hold_on_keeps_playing_and_a_new_gesture_replaces_the_chord) {
 }
 
 TEST(sync_off_runs_silently_and_resumes_in_place) {
-    auto ph = phrase(steps("index", {"p0", "p0", "p0", "p0"}, 4, 30), "length 480");
+    auto ph = phrase(steps("index", {"p0", "p0", "p0", "p0"}, 4, 60), "length 480");
     Settings s;
     s.hold = HoldMode::SyncOff;
     // Released during the second step, pressed again during the fourth: the phrase did not restart.
-    const auto t = onTicks(render(*ph, s, {on(0, 60), off(130, 60), on(300, 62)}, 480));
-    CHECK(t == std::vector<long>({0, 120 * kTick, 360 * kTick}));
+    const auto ev = render(*ph, s, {on(0, 60), off(130, 60), on(300, 62)}, 480);
+    CHECK(onTicks(ev) == std::vector<long>({0, 120 * kTick, 360 * kTick}));
+    // The note sounding at the release ends there.
+    long secondOff = -1;
+    for (const auto& e : ev) if (e.type == OFF && e.frame > 120 * kTick && secondOff < 0) secondOff = e.frame;
+    CHECK_EQ(secondOff, 130 * kTick);
     s.hold = HoldMode::Off;
     const auto t2 = onTicks(render(*ph, s, {on(0, 60), off(130, 60), on(300, 62)}, 480));
     CHECK(t2 == std::vector<long>({0, 120 * kTick, 300 * kTick, 420 * kTick}));
@@ -305,6 +309,8 @@ TEST(toggle_trigger_starts_and_stops_with_gestures) {
     Settings s;
     s.trigger = TriggerMode::Toggle;
     CHECK(onKeys(render(*ph, s, {on(0, 60), off(10, 60), on(250, 60), off(260, 60)}, 960)).size() == 3);
+    // A chord pressed together is one toggle: the second gesture stops the arpeggio for good.
+    CHECK(onKeys(render(*ph, s, {on(0, 60), on(0, 64), off(10, 60), off(10, 64), on(250, 60), on(250, 64), off(260, 60), off(260, 64)}, 960)).size() == 3);
 }
 
 TEST(loop_off_plays_one_pass) {

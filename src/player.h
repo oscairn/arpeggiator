@@ -146,6 +146,8 @@ private:
     int heldCount_ = 0;
     uint32_t order_ = 0;
     bool pedal_[16] = {};
+    bool down_[16][128] = {};  // arp-range keys physically down, toggling ones included
+    int downCount_ = 0;
     int lastChannel_ = 0;
     int chordRoot_ = 0, chordType_ = 34, chordBass_ = 0;  // 34: no chord
 

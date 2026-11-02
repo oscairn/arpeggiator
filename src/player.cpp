@@ -290,6 +290,8 @@ void Player::stopArp(uint32_t frame) {
 void Player::panic(uint32_t frame) {
     for (int i = 0; i < kMaxSounding; ++i) noteOffAt(frame, i);
     heldCount_ = 0;
+    for (auto& c : down_) for (auto& k : c) k = false;
+    downCount_ = 0;
     running_ = audible_ = toggledOn_ = false;
     accent_ = 0;
     startAt_ = -1;
@@ -322,7 +324,9 @@ void Player::keyOn(uint32_t frame, int channel, int key, int velocity, int32_t i
     if ((!arpKey || direct) && !(settings_.playOnly && settings_.on))
         noteOn(frame, channel, key, velocity16(velocity), kNever, inputId, true);
     if (!arpKey || heldCount_ == kMaxHeld) return;
-    const bool gestureStart = arpKeysDown() == 0;
+    // A gesture starts when no arp key is physically down; keys pressed with it belong to it.
+    const bool gestureStart = downCount_ == 0;
+    if (!down_[channel][key]) { down_[channel][key] = true; ++downCount_; }
     const bool latch = settings_.hold == HoldMode::On || settings_.trigger == TriggerMode::Toggle;
     if (settings_.trigger == TriggerMode::Toggle && gestureStart) {
         toggledOn_ = !toggledOn_;
@@ -355,6 +359,7 @@ void Player::keyOn(uint32_t frame, int channel, int key, int velocity, int32_t i
 
 void Player::keyOff(uint32_t frame, int channel, int key, int32_t inputId) {
     advanceTo(frame);
+    if (channel >= 0 && channel < 16 && key >= 0 && key < 128 && down_[channel][key]) { down_[channel][key] = false; --downCount_; }
     for (int i = 0; i < kMaxSounding; ++i)
         if (sounding_[i].used && sounding_[i].passThrough && sounding_[i].key == key && sounding_[i].channel == channel &&
             !sounding_[i].waitPedal && (inputId < 0 || sounding_[i].inputId == inputId)) {
@@ -384,8 +389,9 @@ void Player::keyOff(uint32_t frame, int channel, int key, int32_t inputId) {
 void Player::releaseKeysOff(uint32_t frame) {
     if (heldCount_) return;
     if (settings_.hold == HoldMode::SyncOff && settings_.loop) {
-        audible_ = false;
-        accent_ = 0;
+        // Silent, but the phrase keeps its place; sounding notes end now, as with Hold Off.
+        stopArp(frame);
+        running_ = true;
     } else stopArp(frame);
 }
 
