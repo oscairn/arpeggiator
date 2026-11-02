@@ -1,0 +1,4 @@
+build*/
+*.ophr.local
+.DS_Store
+__pycache__/
