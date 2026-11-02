@@ -361,6 +361,20 @@ struct Plugin {
                 passMidi(m, frame, out);
                 return;
             }
+            case CLAP_EVENT_NOTE_EXPRESSION: {
+                // Expressions follow played keys that pass through; arpeggiated keys have no single output.
+                if (h->size < sizeof(clap_event_note_expression_t)) return;
+                clap_event_note_expression_t e = *reinterpret_cast<const clap_event_note_expression_t*>(h);
+                if (e.port_index > 0) return;
+                player.advance(frame);
+                const int32_t id = player.passThroughId(e.note_id, e.channel, e.key);
+                if (id < 0) return;
+                e.note_id = id;
+                e.port_index = 0;
+                e.header.time = frame;
+                if (!out->try_push(out, &e.header)) recover(frame, out);
+                return;
+            }
             case CLAP_EVENT_MIDI_SYSEX:
                 if (h->size >= sizeof(clap_event_midi_sysex_t)) sysex(*reinterpret_cast<const clap_event_midi_sysex_t*>(h));
                 return;

@@ -101,6 +101,9 @@ public:
     // Ends every sounding note at `frame` and forgets held keys (stop, reset, choke all).
     void panic(uint32_t frame);
     bool overflowed() const { return overflow_; }
+    // The output identity of a played key passed through (matching the input id, or channel and key
+    // when the id is -1); -1 if it is not sounding.
+    int32_t passThroughId(int32_t inputId, int channel, int key) const;
     bool idle() const;
 
 private:

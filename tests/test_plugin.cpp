@@ -38,6 +38,10 @@ struct OutEvents {
     long base = 0;
     clap_output_events_t api{this, [](const clap_output_events_t* l, const clap_event_header_t* h) {
         auto* o = static_cast<OutEvents*>(l->ctx);
+        if (h->type == CLAP_EVENT_NOTE_EXPRESSION) {
+            const auto* n = reinterpret_cast<const clap_event_note_expression_t*>(h);
+            o->notes.push_back({h->type, o->base + h->time, n->key, n->channel, n->note_id, n->value});
+        }
         if (h->type == CLAP_EVENT_NOTE_ON || h->type == CLAP_EVENT_NOTE_OFF || h->type == CLAP_EVENT_NOTE_END || h->type == CLAP_EVENT_NOTE_CHOKE) {
             const auto* n = reinterpret_cast<const clap_event_note_t*>(h);
             o->notes.push_back({h->type, o->base + h->time, n->key, n->channel, n->note_id, n->velocity});
@@ -192,6 +196,18 @@ int main(int argc, char** argv) {
         OutEvents o2;
         off.run(o2, {at(0, param(1, 0)), at(10, note(CLAP_EVENT_NOTE_ON, 0, 62, 0.5, 7))}, 48000, 256);
         CHECK(ons(o2) == std::vector<int>({62}));
+    }
+
+    {  // a passed-through key keeps its expressions, under its output identity
+        Instance in(factory);
+        clap_event_note_expression_t ex{};
+        ex.header = {sizeof ex, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_NOTE_EXPRESSION, 0};
+        ex.expression_id = CLAP_NOTE_EXPRESSION_PRESSURE; ex.note_id = 7; ex.port_index = 0; ex.channel = 0; ex.key = 61; ex.value = 0.5;
+        OutEvents out;
+        in.run(out, {at(10, note(CLAP_EVENT_NOTE_ON, 0, 61, 0.5, 7)), at(20, ex)}, 256, 256);
+        int onId = -2, exId = -3;
+        for (auto& n : out.notes) { if (n.type == CLAP_EVENT_NOTE_ON) onId = n.id; if (n.type == CLAP_EVENT_NOTE_EXPRESSION) exId = n.id; }
+        CHECK(onId == exId);
     }
 
     {  // state round trip keeps parameters and phrases; bad states are refused

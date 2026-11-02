@@ -143,6 +143,12 @@ int Player::arpKeysDown() const {
     return n;
 }
 
+int32_t Player::passThroughId(int32_t inputId, int channel, int key) const {
+    for (const auto& s : sounding_)
+        if (s.used && s.passThrough && (inputId >= 0 ? s.inputId == inputId : s.channel == channel && s.key == key)) return s.id;
+    return -1;
+}
+
 bool Player::idle() const {
     if (running_ || heldCount_ || startAt_ >= 0) return false;
     for (const auto& s : sounding_) if (s.used) return false;
