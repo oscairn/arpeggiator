@@ -6,6 +6,7 @@
 #include <clap/clap.h>
 #include <oscairn-clap/assets.h>
 #include <oscairn-clap/beat.h>
+#include <oscairn-clap/harmony.h>
 
 #include <algorithm>
 #include <atomic>
@@ -34,13 +35,14 @@ const char* const kSync[] = {"Off", "60", "80", "120", "160", "240", "320", "480
 const char* const kChange[] = {"Real-time", "Measure"};
 const char* const kRecord[] = {"Off", "Armed"};
 const char* const kConvert[] = {"Fixed", "Relative", "Chord"};
+const char* const kChordSource[] = {"Own keys", "Harmony"};
 const int kGridTicks[] = {60, 80, 120, 160, 240, 320, 480};
 
 enum : clap_id {
     pSwitch = 1, pHold, pKeyMode, pVelMode, pTrigger, pLoop, pPlayOnly, pUnit, pQuantize, pStrength, pSwing,
     pVelRate, pGateRate, pOctRange, pOutOct, pNoteLow, pNoteHigh, pVelLow, pVelHigh, pChange, pAccent, pAccentQ,
     pSfx, pSfxVel, pSfxKey, pSdBd, pSync, pSlot, pSlotVel1, pSlotGate1 = pSlotVel1 + 8, pRecord = pSlotGate1 + 8,
-    pRecordBars, pRecordConvert, pEnd
+    pRecordBars, pRecordConvert, pChordSource, pEnd
 };
 
 const ParamInfo kBase[] = {
@@ -79,11 +81,14 @@ const ParamInfo kRecordParams[] = {
     {pRecordBars, "Record Bars", "Record", 1, 8, 1, nullptr},
     {pRecordConvert, "Record Convert", "Record", 0, 2, 2, kConvert},
 };
-constexpr int kParamCount = kBaseCount + 16 + 3;
+// Where the phrase's chord comes from: the keys the arpeggiator holds, or the part's chord (oscairn.harmony).
+const ParamInfo kChordSourceParam = {pChordSource, "Chord Source", "Arpeggio", 0, 1, 0, kChordSource};
+constexpr int kParamCount = kBaseCount + 16 + 3 + 1;
 
 bool paramInfo(int index, ParamInfo& p, char* name, size_t nameSize) {
     if (index < 0 || index >= kParamCount) return false;
     if (index < kBaseCount) { p = kBase[index]; std::snprintf(name, nameSize, "%s", p.name); return true; }
+    if (index == kParamCount - 1) { p = kChordSourceParam; std::snprintf(name, nameSize, "%s", p.name); return true; }
     if (index >= kBaseCount + 16) { p = kRecordParams[index - kBaseCount - 16]; std::snprintf(name, nameSize, "%s", p.name); return true; }
     const int k = index - kBaseCount, slot = k % 8;
     const bool gate = k >= 8;
@@ -145,6 +150,7 @@ struct Plugin {
     // The host's free-running beat (oscairn.beat), where it gives one: Sync Quantize lines up on it
     // while the transport is stopped, so parts started together start together.
     uint16_t beatSpace = UINT16_MAX;
+    uint16_t harmonySpace = UINT16_MAX;  // oscairn.harmony: the part's chord, for Chord Source Harmony
     bool hasFreeBeat = false;
     double freeBeat = 0, freeTempo = 120;
     // Record mode: the audio thread captures while recordState is 1; 2 hands the notes to the main thread.
@@ -171,6 +177,7 @@ struct Plugin {
             const auto* registry = s.host && s.host->get_extension
                 ? static_cast<const clap_host_event_registry_t*>(s.host->get_extension(s.host, CLAP_EXT_EVENT_REGISTRY)) : nullptr;
             if (registry && registry->query && !registry->query(s.host, OSCAIRN_EVENT_SPACE_BEAT, &s.beatSpace)) s.beatSpace = UINT16_MAX;
+            if (registry && registry->query && !registry->query(s.host, OSCAIRN_EVENT_SPACE_HARMONY, &s.harmonySpace)) s.harmonySpace = UINT16_MAX;
             return true;
         };
         api.destroy = [](const clap_plugin_t* p) { delete &of(p); };
@@ -228,6 +235,7 @@ struct Plugin {
         s.syncQuantize = sync ? kGridTicks[sync - 1] : 0;
         s.slot = std::clamp(ival(pSlot), 0, 7);
         for (int i = 0; i < 8; ++i) { s.slotVelocityOffset[i] = ival(clap_id(pSlotVel1 + i)); s.slotGateOffset[i] = ival(clap_id(pSlotGate1 + i)); }
+        s.harmonyChord = ival(pChordSource) != 0;
         return s;
     }
 
@@ -371,6 +379,10 @@ struct Plugin {
     }
 
     void input(const clap_event_header_t* h, uint32_t frame, const clap_output_events_t* out) {
+        if (h->space_id == harmonySpace && h->type == OSCAIRN_EVENT_HARMONY && h->size >= sizeof(oscairn_event_harmony_t)) {
+            player.setHarmony(frame, reinterpret_cast<const oscairn_event_harmony_t*>(h)->harmony.held);
+            return;
+        }
         if (h->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
         switch (h->type) {
             case CLAP_EVENT_PARAM_VALUE: paramEvent(h); player.setSettings(settings()); return;

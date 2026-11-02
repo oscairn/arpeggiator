@@ -91,8 +91,9 @@ void Player::setSettings(const Settings& s) {
     const bool regrid = s.quantizeTicks != settings_.quantizeTicks || s.quantizeStrength != settings_.quantizeStrength ||
                         s.swing != settings_.swing;
     const int oldSlot = settings_.slot;
-    const bool wasOn = settings_.on;
+    const bool wasOn = settings_.on, chordFrom = settings_.harmonyChord;
     settings_ = s;
+    if (chordFrom != s.harmonyChord) detectChord();
     settings_.unit = clampi(s.unit, 0, 9);
     settings_.slot = oldSlot;
     if (regrid) scheduleDirty_ = true;
@@ -156,13 +157,33 @@ bool Player::idle() const {
     return true;
 }
 
-// Root, type and bass of the held keys, for style tracks and chord filters.
+// The keys the phrase plays on: the held keys, or with Chord Source Harmony and a chord from the host,
+// that chord's keys in pitch order (Key Mode Thru has no order to keep), each with the velocity of the
+// first held key.
+int Player::chordKeys(Held* out) const {
+    if (!fromHarmony()) { std::copy(held_, held_ + heldCount_, out); return heldCount_; }
+    for (int i = 0; i < harmonyCount_; ++i) { out[i] = harmony_[i]; out[i].velocity = held_[0].velocity; }
+    return harmonyCount_;
+}
+
+void Player::setHarmony(uint32_t frame, const uint64_t keys[2]) {
+    advanceTo(frame);
+    if (!keys[0] && !keys[1]) return;
+    harmonyCount_ = 0;
+    for (int k = 0; k < 128 && harmonyCount_ < kMaxHeld; ++k)
+        if (keys[k / 64] >> (k % 64) & 1) harmony_[harmonyCount_++] = {uint8_t(k), 100, 0, uint32_t(harmonyCount_), true, false};
+    detectChord();
+}
+
+// Root, type and bass of the chord keys, for style tracks and chord filters.
 void Player::detectChord() {
+    Held keys[kMaxHeld];
+    const int n = chordKeys(keys);
     uint16_t pcs = 0;
     int lowest = 128;
-    for (int i = 0; i < heldCount_; ++i) {
-        pcs |= uint16_t(1u << (held_[i].key % 12));
-        lowest = std::min<int>(lowest, held_[i].key);
+    for (int i = 0; i < n; ++i) {
+        pcs |= uint16_t(1u << (keys[i].key % 12));
+        lowest = std::min<int>(lowest, keys[i].key);
     }
     chordType_ = 34;
     if (!pcs) return;
@@ -428,8 +449,7 @@ void Player::sustain(uint32_t frame, int channel, bool down) {
 // The track's note list: template notes (moved with the chord or absolute), then held keys.
 int Player::buildList(const Track& t, Entry* out, Entry& first) const {
     Held keys[kMaxHeld];
-    const int n = heldCount_;
-    std::copy(held_, held_ + n, keys);
+    const int n = chordKeys(keys);
     const bool thru = settings_.keyMode == KeyMode::Thru || settings_.keyMode == KeyMode::ThruDirect;
     std::sort(keys, keys + n, [thru](const Held& a, const Held& b) {
         return thru ? a.order < b.order : a.key < b.key || (a.key == b.key && a.order < b.order);
@@ -481,13 +501,12 @@ void Player::sendNote(const Track& t, uint32_t frame, int channel, int key, int 
 }
 
 bool Player::trackPlays(const Track& t) const {
-    const int n = heldCount_;
+    const int n = chordCount();
     return n >= t.minHeld && (t.maxHeld >= kAnyCount || n <= t.maxHeld);
 }
 
 void Player::playEvent(int ti, const Event& e, double clockTick, uint32_t frame) {
     const Track& t = phrase_->tracks[ti];
-    const int n = heldCount_;
     if (!trackPlays(t)) return;
     const int channel = t.channel ? t.channel - 1 : lastChannel_;
     const bool chordOk = chordType_ < 35 && (t.rootMask >> chordRoot_ & 1) && (t.typeMask >> chordType_ & 1);
@@ -513,10 +532,12 @@ void Player::playEvent(int ti, const Event& e, double clockTick, uint32_t frame)
     };
     if (e.source == Source::Key) { out({e.key, uint8_t(e.velocity), false}, 0, octaveStep_); return; }
     if (e.source == Source::Relative) {
+        Held keys[kMaxHeld];
+        const int n = chordKeys(keys);
         int lowest = 127;
-        for (int i = 0; i < n; ++i) lowest = std::min<int>(lowest, held_[i].key);
+        for (int i = 0; i < n; ++i) lowest = std::min<int>(lowest, keys[i].key);
         if (!n) return;
-        out({uint8_t(fold(e.key + lowest - t.root)), held_[0].velocity, false}, 0, octaveStep_);
+        out({uint8_t(fold(e.key + lowest - t.root)), keys[0].velocity, false}, 0, octaveStep_);
         return;
     }
     Entry list[kMaxList];

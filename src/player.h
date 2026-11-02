@@ -52,6 +52,9 @@ struct Settings {
     int slot = 0;               // 0..7, the selected phrase
     int slotVelocityOffset[kSlots] = {};  // percent -100..100
     int slotGateOffset[kSlots] = {};
+    // Chord Source Harmony: the phrase plays on the host's chord (setHarmony) instead of the held keys;
+    // the held keys still start, hold and stop it.
+    bool harmonyChord = false;
 };
 
 struct Output {
@@ -95,6 +98,9 @@ public:
     void keyOn(uint32_t frame, int channel, int key, int velocity, int32_t inputId);
     void keyOff(uint32_t frame, int channel, int key, int32_t inputId);
     void sustain(uint32_t frame, int channel, bool down);
+    // The keys held on the part (oscairn.harmony), bit k of keys[k / 64] for key k. With none held the
+    // last chord stays.
+    void setHarmony(uint32_t frame, const uint64_t keys[2]);
     void advance(uint32_t frame) { advanceTo(frame); }  // render up to `frame` before passing other input on
     void end();
 
@@ -137,6 +143,9 @@ private:
     uint32_t frameAt(double tick) const;
     int arpKeysDown() const;
     int heldCount() const { return heldCount_; }
+    bool fromHarmony() const { return settings_.harmonyChord && harmonyCount_ && heldCount_; }
+    int chordCount() const { return fromHarmony() ? harmonyCount_ : heldCount_; }
+    int chordKeys(Held* out) const;
     uint32_t nextRandom();
 
     Settings settings_;
@@ -146,6 +155,8 @@ private:
 
     Held held_[kMaxHeld];
     int heldCount_ = 0;
+    Held harmony_[kMaxHeld];  // the host's chord, lowest keys first; kept when it goes empty
+    int harmonyCount_ = 0;
     uint32_t order_ = 0;
     bool pedal_[16] = {};
     bool down_[16][128] = {};  // arp-range keys physically down, toggling ones included

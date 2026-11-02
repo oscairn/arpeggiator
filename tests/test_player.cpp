@@ -30,10 +30,15 @@ struct Collect : Sink {
     }
 };
 
-struct Key { long tick; int kind; int key; int vel; };  // kind: 0 on, 1 off, 2 pedal
+struct Key { long tick; int kind; int key; int vel; uint64_t chord[2] = {0, 0}; };  // kind: 0 on, 1 off, 2 pedal, 3 harmony
 Key on(long t, int k, int v = 100) { return {t, 0, k, v}; }
 Key off(long t, int k) { return {t, 1, k, 0}; }
 Key pedal(long t, bool down) { return {t, 2, 64, down ? 127 : 0}; }
+Key harmony(long t, std::initializer_list<int> keys) {
+    Key k{t, 3, 0, 0};
+    for (int key : keys) k.chord[key / 64] |= uint64_t(1) << (key % 64);
+    return k;
+}
 
 std::unique_ptr<Phrase> phrase(const std::string& body, const char* header = "length 1920") {
     auto p = std::make_unique<Phrase>();
@@ -63,7 +68,8 @@ std::vector<Ev> render(const Phrase& ph, const Settings& s, std::vector<Key> key
             const uint32_t f = uint32_t(keys[k].tick * kTick - pos);
             if (keys[k].kind == 0) p.keyOn(f, 0, keys[k].key, keys[k].vel, int32_t(k));
             else if (keys[k].kind == 1) p.keyOff(f, 0, keys[k].key, -1);
-            else p.sustain(f, 0, keys[k].vel >= 64);
+            else if (keys[k].kind == 2) p.sustain(f, 0, keys[k].vel >= 64);
+            else p.setHarmony(f, keys[k].chord);
             ++k;
         }
         p.end();
@@ -288,6 +294,31 @@ TEST(hold_on_keeps_playing_and_a_new_gesture_replaces_the_chord) {
     s.hold = HoldMode::On;
     const auto ev = render(*ph, s, {on(0, 60), off(10, 60), on(450, 62), off(460, 62)}, 900);
     CHECK(onKeys(ev) == v({60, 60, 60, 60, 62, 62, 62, 62}));
+}
+
+TEST(chord_source_harmony_plays_the_hosts_chord_while_own_keys_hold_the_arp) {
+    auto ph = phrase(steps("index", {"p0", "p1", "p2", "p0"}, 4, 30), "length 480");
+    Settings s;
+    s.harmonyChord = true;
+    // Own key 84 starts it; the phrase walks the host's chord, which changes at 480 and empties at 960
+    // (the last chord stays); releasing 84 stops it.
+    const std::vector<Key> keys = {harmony(0, {48, 52, 55}), on(0, 84, 90), harmony(480, {50, 53, 57}), harmony(960, {}), off(1440, 84)};
+    const auto ev = render(*ph, s, keys, 1920);
+    CHECK(onKeys(ev) == v({48, 52, 55, 48, 50, 53, 57, 50, 50, 53, 57, 50}));
+    // Own keys: the option off, or no chord from the host yet.
+    CHECK(onKeys(render(*ph, {}, keys, 480)) == v({84, 84}));  // index: one key, p1 and p2 missing
+    CHECK(onKeys(render(*ph, s, {on(0, 84)}, 480)) == v({84, 84}));
+    // Velocity Thru gives the host's keys the velocity of the held key.
+    s.velocityMode = VelocityMode::Thru;
+    Settings own = s;
+    own.harmonyChord = false;
+    auto velocities = [](const std::vector<Ev>& ev) { std::vector<int> o; for (const auto& e : ev) if (e.type == ON) o.push_back(e.velocity16); return o; };
+    CHECK(velocities(render(*ph, s, keys, 480)) == velocities(render(*ph, own, {on(0, 48, 90), on(0, 52, 90), on(0, 55, 90)}, 480)));
+    // Hold On keeps the arp going after the release, on the chord the host has now.
+    s.velocityMode = VelocityMode::Original;
+    s.hold = HoldMode::On;
+    CHECK(onKeys(render(*ph, s, {harmony(0, {48, 52, 55}), on(0, 84), off(10, 84), harmony(480, {50, 53, 57})}, 960)) ==
+          v({48, 52, 55, 48, 50, 53, 57, 50}));
 }
 
 TEST(sync_off_runs_silently_and_resumes_in_place) {

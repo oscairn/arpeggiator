@@ -139,7 +139,8 @@ through its log. The line is kept on save either way. A phrase loaded, pushed or
 a slot replaces it and drops its `asset` line. A state with an `asset` line but no `slot` text
 for that slot plays nothing there when the asset is missing. Parameter IDs are listed in `src/plugin.cpp`
 (1 Switch … 28 Slot, 29–36 slot velocity offsets, 37–44 slot gate offsets, 45 Record,
-46 Record Bars, 47 Record Convert) and never change.
+46 Record Bars, 47 Record Convert, 48 Chord Source) and never change. A parameter missing from a
+state keeps its current value (its default, in a new instance).
 
 ## Record mode
 

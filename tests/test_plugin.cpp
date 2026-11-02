@@ -7,6 +7,7 @@
 #include <dlfcn.h>
 #include <oscairn-clap/assets.h>
 #include <oscairn-clap/beat.h>
+#include <oscairn-clap/harmony.h>
 
 #include <atomic>
 #include <cmath>
@@ -37,6 +38,23 @@ const clap_host_event_registry_t kRegistry = {[](const clap_host_t*, const char*
 const clap_host_t kBeatHost = {CLAP_VERSION, nullptr, "test", "oscairn", "", "1",
                                [](const clap_host_t*, const char* id) -> const void* { return std::strcmp(id, CLAP_EXT_EVENT_REGISTRY) ? nullptr : &kRegistry; },
                                [](const clap_host_t*) {}, [](const clap_host_t*) {}, [](const clap_host_t*) { ++callbacks; }};
+
+// A host that gives the part's harmony (oscairn.harmony) in event space 0x4322.
+constexpr uint16_t kHarmonySpace = 0x4322;
+const clap_host_event_registry_t kHarmonyRegistry = {[](const clap_host_t*, const char* space, uint16_t* id) {
+    if (std::strcmp(space, OSCAIRN_EVENT_SPACE_HARMONY)) return false;
+    *id = kHarmonySpace;
+    return true;
+}};
+const clap_host_t kHarmonyHost = {CLAP_VERSION, nullptr, "test", "oscairn", "", "1",
+                                  [](const clap_host_t*, const char* id) -> const void* { return std::strcmp(id, CLAP_EXT_EVENT_REGISTRY) ? nullptr : &kHarmonyRegistry; },
+                                  [](const clap_host_t*) {}, [](const clap_host_t*) {}, [](const clap_host_t*) { ++callbacks; }};
+oscairn_event_harmony_t harmonyEvent(std::initializer_list<int> keys) {
+    oscairn_event_harmony_t e{};
+    e.header = {sizeof e, 0, kHarmonySpace, OSCAIRN_EVENT_HARMONY, 0};
+    for (int k : keys) e.harmony.held[k / 64] |= uint64_t(1) << (k % 64);
+    return e;
+}
 
 // A host with an asset store (oscairn.assets) holding one file, assetFile; empty: nothing resolves.
 std::string assetFile;
@@ -188,7 +206,7 @@ int main(int argc, char** argv) {
         CHECK(audio && audio->count(in.p, true) == 0 && audio->count(in.p, false) == 0);
         CHECK(notes && notes->count(in.p, true) == 1 && notes->count(in.p, false) == 1);
         const uint32_t n = in.params->count(in.p);
-        CHECK(n == 47);
+        CHECK(n == 48);
         std::vector<clap_id> ids;
         for (uint32_t i = 0; i < n; ++i) {
             clap_param_info_t info;
@@ -306,6 +324,25 @@ int main(int argc, char** argv) {
         // A state without the line, or a phrase loaded over the slot, leaves no asset.
         CHECK(load(found, stateWith(kUp)) && deps && deps->count(found.p) == 0);
         CHECK(!load(found, "oscairn-arpeggiator 1\nasset 0 user short x.ophr\n"));
+    }
+
+    {  // Chord Source Harmony: the part's chord from oscairn.harmony drives the phrase; off, the own keys do
+        char text[64];
+        Instance in(factory, &kHarmonyHost);
+        CHECK(in.params->value_to_text(in.p, 48, 1, text, sizeof text) && !std::strcmp(text, "Harmony"));
+        CHECK(load(in, stateWith(kUp)));
+        in.p->on_main_thread(in.p);
+        OutEvents out;
+        in.run(out, {at(0, param(48, 1)), at(0, harmonyEvent({48, 52, 55})), at(0, note(CLAP_EVENT_NOTE_ON, 0, 84, 0.8, 1))}, 24000, 256);
+        CHECK(ons(out) == std::vector<int>({48, 52, 55, 48}));
+        Stream st;
+        CHECK(in.state->save(in.p, &st.out) && st.data.find("param 48 1\n") != std::string::npos);
+        Instance own(factory, &kHarmonyHost);
+        CHECK(load(own, stateWith(kUp)));
+        own.p->on_main_thread(own.p);
+        OutEvents o2;
+        own.run(o2, {at(0, harmonyEvent({48, 52, 55})), at(0, note(CLAP_EVENT_NOTE_ON, 0, 84, 0.8, 1))}, 24000, 256);
+        CHECK(ons(o2) == std::vector<int>({84, 84, 84, 84}));
     }
 
     {  // the transport stopping ends what sounds
