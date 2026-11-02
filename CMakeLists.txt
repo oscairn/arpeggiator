@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_library(clap_headers INTERFACE)
-target_include_directories(clap_headers INTERFACE third_party/clap/include)
+target_include_directories(clap_headers INTERFACE third_party/clap/include third_party/oscairn-clap/include)
 
 # The phrase model and player, shared by the plugin, the tests and the tools.
 add_library(arp_engine STATIC src/phrase.cpp src/player.cpp src/record.cpp)

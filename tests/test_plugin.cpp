@@ -4,6 +4,7 @@
 // calls running while another thread processes (for ThreadSanitizer).
 #include <clap/clap.h>
 #include <dlfcn.h>
+#include <oscairn-clap/beat.h>
 
 #include <atomic>
 #include <cmath>
@@ -23,6 +24,16 @@ const clap_host_t kHost = {CLAP_VERSION, nullptr, "test", "oscairn", "", "1",
                            [](const clap_host_t*, const char*) -> const void* { return nullptr; },
                            [](const clap_host_t*) {}, [](const clap_host_t*) {},
                            [](const clap_host_t*) { ++callbacks; }};
+// A host that gives the free-running beat (oscairn.beat) in event space 0x4321.
+constexpr uint16_t kBeatSpace = 0x4321;
+const clap_host_event_registry_t kRegistry = {[](const clap_host_t*, const char* space, uint16_t* id) {
+    if (std::strcmp(space, OSCAIRN_EVENT_SPACE_BEAT)) return false;
+    *id = kBeatSpace;
+    return true;
+}};
+const clap_host_t kBeatHost = {CLAP_VERSION, nullptr, "test", "oscairn", "", "1",
+                               [](const clap_host_t*, const char* id) -> const void* { return std::strcmp(id, CLAP_EXT_EVENT_REGISTRY) ? nullptr : &kRegistry; },
+                               [](const clap_host_t*) {}, [](const clap_host_t*) {}, [](const clap_host_t*) { ++callbacks; }};
 
 struct InEvents {
     std::vector<std::vector<uint8_t>> events;
@@ -67,8 +78,9 @@ struct Instance {
     const clap_plugin_t* p;
     const clap_plugin_params_t* params;
     const clap_plugin_state_t* state;
-    Instance(const clap_plugin_factory_t* f) {
-        p = f->create_plugin(f, &kHost, "org.oscairn.arpeggiator");
+    double beatOffset = -1;  // >= 0: send the free-running beat, pos / 24000 + beatOffset, each block
+    Instance(const clap_plugin_factory_t* f, const clap_host_t* host = &kHost) {
+        p = f->create_plugin(f, host, "org.oscairn.arpeggiator");
         p->init(p);
         params = static_cast<const clap_plugin_params_t*>(p->get_extension(p, CLAP_EXT_PARAMS));
         state = static_cast<const clap_plugin_state_t*>(p->get_extension(p, CLAP_EXT_STATE));
@@ -83,6 +95,13 @@ struct Instance {
         for (long pos = start; pos < start + frames; pos += block) {
             const uint32_t n = uint32_t(std::min<long>(block, start + frames - pos));
             InEvents ev;
+            if (beatOffset >= 0) {
+                oscairn_event_beat_t be{};
+                be.header = {sizeof be, 0, kBeatSpace, OSCAIRN_EVENT_BEAT, 0};
+                be.beats = clap_beattime(std::llround((pos / 24000.0 + beatOffset) * CLAP_BEATTIME_FACTOR));
+                be.tempo = 120;
+                ev.add(be);
+            }
             while (k < in.size() && in[k].first < pos + n) {
                 ev.events.push_back(in[k].second);
                 reinterpret_cast<clap_event_header_t*>(ev.events.back().data())->time = uint32_t(std::max<long>(0, in[k].first - pos));
@@ -279,6 +298,22 @@ int main(int argc, char** argv) {
         for (auto& n : out.notes) if (n.type == CLAP_EVENT_NOTE_ON) f.push_back(n.frame);
         CHECK(ons(out) == std::vector<int>({60, 64, 60, 64}));
         CHECK(f.size() == 4 && f[2] == 8960 && f[3] == 14960);
+    }
+
+    {  // stopped transport: Sync Quantize lines up on the host's free-running beat, not each instance's own clock
+        long first[2] = {-1, -1};
+        const long starts[2] = {0, 7000};  // the second instance starts processing later
+        for (int i = 0; i < 2; ++i) {
+            Instance in(factory, &kBeatHost);
+            in.beatOffset = 0.3;
+            CHECK(load(in, stateWith(kUp)));
+            in.p->on_main_thread(in.p);
+            OutEvents out;
+            in.run(out, {at(starts[i], param(27, 7)), at(30000, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1))}, 60000 - starts[i], 256, starts[i]);
+            for (auto& n : out.notes) if (n.type == CLAP_EVENT_NOTE_ON && first[i] < 0) first[i] = n.frame;
+        }
+        // Beat 1.55 at frame 30000; the next whole beat, 2, is at frame (2 - 0.3) * 24000.
+        CHECK(first[0] == 40800 && first[1] == 40800);
     }
 
     {  // a phrase pushed on the note input is installed by the main thread

@@ -122,7 +122,8 @@ bool Player::emit(const Output& o) {
 // The first frame at or after `tick`, never before the frames already rendered; may be past the block.
 uint32_t Player::frameAt(double tick) const {
     if (ticksPerFrame_ <= 0) return cursorFrame_;
-    const double f = std::ceil((tick - clockTick_) / ticksPerFrame_ - 1e-6);
+    // The tolerance covers the host beat's resolution (2^-31 beat, up to ~1e-5 frame at slow tempos and high rates).
+    const double f = std::ceil((tick - clockTick_) / ticksPerFrame_ - 1e-4);
     if (f < cursorFrame_) return cursorFrame_;
     if (f > 4294967295.0) return 0xFFFFFFFFu;
     return uint32_t(f);

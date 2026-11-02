@@ -4,6 +4,7 @@
 // phrase reaches the audio thread through a per-slot pending pointer; the replaced one comes back
 // through a per-slot retired pointer and is freed on the main thread.
 #include <clap/clap.h>
+#include <oscairn-clap/beat.h>
 
 #include <algorithm>
 #include <atomic>
@@ -139,6 +140,11 @@ struct Plugin {
     std::atomic<size_t> inboxSize{0};  // nonzero: full, owned by the main thread until cleared
     std::atomic<int> inboxSlot{0};
     bool playing = false, transportSeen = false;
+    // The host's free-running beat (oscairn.beat), where it gives one: Sync Quantize lines up on it
+    // while the transport is stopped, so parts started together start together.
+    uint16_t beatSpace = UINT16_MAX;
+    bool hasFreeBeat = false;
+    double freeBeat = 0, freeTempo = 120;
     // Record mode: the audio thread captures while recordState is 1; 2 hands the notes to the main thread.
     arp::Recorder recorder;
     std::atomic<int> recordState{0};
@@ -146,7 +152,7 @@ struct Plugin {
     // The host's beat position at the last block, to notice relocations while playing.
     double lastBeats = 0, lastBeatsPerFrame = 0;
     uint32_t lastFrames = 0;
-    bool lastHadBeats = false;
+    bool lastHadBeats = false;  // the last block's beats came from the playing transport
 
     static Plugin& of(const clap_plugin_t* p) { return *static_cast<Plugin*>(p->plugin_data); }
 
@@ -158,7 +164,13 @@ struct Plugin {
         }
         api.desc = &kDescriptor;
         api.plugin_data = this;
-        api.init = [](const clap_plugin_t*) { return true; };
+        api.init = [](const clap_plugin_t* p) {
+            auto& s = of(p);
+            const auto* registry = s.host && s.host->get_extension
+                ? static_cast<const clap_host_event_registry_t*>(s.host->get_extension(s.host, CLAP_EXT_EVENT_REGISTRY)) : nullptr;
+            if (registry && registry->query && !registry->query(s.host, OSCAIRN_EVENT_SPACE_BEAT, &s.beatSpace)) s.beatSpace = UINT16_MAX;
+            return true;
+        };
         api.destroy = [](const clap_plugin_t* p) { delete &of(p); };
         api.activate = [](const clap_plugin_t* p, double r, uint32_t, uint32_t) {
             if (!(r > 0) || !std::isfinite(r)) return false;
@@ -405,6 +417,25 @@ struct Plugin {
             playing = nowPlaying;
             transportSeen = true;
         }
+        // The free-running beat comes at sample 0 of a host block; later process calls of a split
+        // block carry none, and the position moves on at its tempo.
+        const uint32_t count = b->in_events ? b->in_events->size(b->in_events) : 0;
+        for (uint32_t i = 0; i < count && beatSpace != UINT16_MAX; ++i) {
+            const clap_event_header_t* h = b->in_events->get(b->in_events, i);
+            if (!h || h->time > 0) break;
+            if (h->space_id == beatSpace && h->type == OSCAIRN_EVENT_BEAT && h->size >= sizeof(oscairn_event_beat_t)) {
+                const auto& e = *reinterpret_cast<const oscairn_event_beat_t*>(h);
+                hasFreeBeat = true;
+                freeBeat = double(e.beats) / CLAP_BEATTIME_FACTOR;
+                if (e.tempo > 0 && std::isfinite(e.tempo)) freeTempo = e.tempo;
+            }
+        }
+        const bool fromTransport = clock.hasBeats;
+        if (!clock.hasBeats && hasFreeBeat) {
+            clock.hasBeats = true;
+            clock.beats = freeBeat;
+            if (!b->transport || !(b->transport->flags & CLAP_TRANSPORT_HAS_TEMPO)) clock.tempo = freeTempo;
+        }
         recordTicksPerFrame = clock.tempo / 60.0 * 480.0 / rate;
         const bool wantRecord = ival(pRecord) != 0;
         if (wantRecord && recordState.load(std::memory_order_acquire) == 0) {
@@ -416,13 +447,13 @@ struct Plugin {
         }
         player.setSettings(settings());
         player.begin(clock, b->frames_count, sink);
-        if (clock.hasBeats && lastHadBeats && std::fabs(clock.beats - (lastBeats + lastFrames * lastBeatsPerFrame)) > 1e-3)
+        if (fromTransport && lastHadBeats && std::fabs(clock.beats - (lastBeats + lastFrames * lastBeatsPerFrame)) > 1e-3)
             player.relocate(0);
-        lastHadBeats = clock.hasBeats;
+        lastHadBeats = fromTransport;
         lastBeats = clock.beats;
         lastFrames = b->frames_count;
         lastBeatsPerFrame = clock.tempo / 60.0 / rate;
-        const uint32_t count = b->in_events ? b->in_events->size(b->in_events) : 0;
+        if (hasFreeBeat) freeBeat += b->frames_count * freeTempo / 60.0 / rate;
         for (uint32_t i = 0; i < count; ++i) {
             const clap_event_header_t* h = b->in_events->get(b->in_events, i);
             if (!h) continue;
