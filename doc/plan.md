@@ -25,7 +25,7 @@ Manual's arpeggio pages. The plugin column is the CLAP parameter (section 4.3).
 | Reference parameter | Range | Plugin | Notes |
 | --- | --- | --- | --- |
 | Part Arp Switch | Off, On | Switch | |
-| Arpeggio Master Switch (Common, Scene) | Off, On | — | Performance level: a Performance control on every arp's Switch |
+| Arpeggio Master Switch (Common, Scene) | Off, On | — | Performance level: folded into each Part's Switch by the converter until Performance controls are used (decision 8) |
 | Arp Hold | Sync-Off, Off, On | Hold | Sync-Off: runs silently while released, resumes in place |
 | Arp Key Mode | Sort, Thru, Direct, Sort+Drct, Thru+Drct | Key Mode | |
 | Arp Velocity Mode | Original, Thru | Velocity Mode | |
@@ -63,7 +63,8 @@ Manual's arpeggio pages. The plugin column is the CLAP parameter (section 4.3).
 
 Each rule has a source: **Manual** (Operation Manual text), **Measured** (confirmed by recording the
 reference, section 6) or **To measure** (our working rule until a recording confirms or corrects it). Nothing is "done" until it is
-Measured or explicitly accepted by Jacob.
+Measured or explicitly accepted by Jacob. Rules measured on a few points (R17's fitted window, R25's
+root-fixed voicing on three chords) are accepted as they stand, with more probes later (decision 9).
 
 | # | Rule | Source |
 | --- | --- | --- |
@@ -151,9 +152,13 @@ Oscairn by this project.
 plugin state, which embeds every slot's phrase text, so a saved Sound or Performance is
 self-contained and moves between machines with nothing else. Separately, phrases the user makes or
 imports are library assets (RFC 0009, the user library: "phrase and arpeggio players: MIDI files,
-pattern libraries") so they can be browsed, shared and exported as a library; when Oscairn's
-`oscairn.assets` extension exists the state also records each slot's asset reference, and the embedded
-copy remains the fallback. Converted factory phrases are a library that is exported as a reference
+pattern libraries") so they can be browsed, shared and exported as a library. The state also records
+each slot's asset reference (an `asset` line, phrase-format.md "Plugin state"); the plugin declares
+those references **optional** through `oscairn.asset-dependencies/draft-2`, asks the host for each
+file through `oscairn.assets` when its state loads, and plays the embedded copy when the file is
+missing. Oscairn then loads the Performance or Sound anyway and shows a notice, and keeps the
+references, optional, when it is saved again. A phrase loaded, pushed or recorded into a slot drops
+the slot's reference. Converted factory phrases are a library that is exported as a reference
 only (RFC 0009's rule for content that may not be redistributed).
 
 **Phrases from outside.** The plugin depends on no scripting. It accepts a phrase:
@@ -195,7 +200,10 @@ of the instance's own clock (KD6). A transport start does not count as a song-po
 ### 4.3 One instance per Part
 
 Each converted Part gets one arpeggiator instance at the front of its chain (RFC 0021: a Sound is a
-saved part chain, "an arpeggiator in front of the synth"). Performance-level settings (master switch,
+saved part chain, "an arpeggiator in front of the synth"), with the node role `arpeggiator` (RFC 0032,
+RFC 0016's node roles) so a device profile's arp controls can find it. The role belongs to the node in
+the Performance, set by the converter (RFC 0032; not yet written as of converter commit 373f088) or
+the user; the plugin cannot declare it. Performance-level settings (master switch,
 arp select, common offsets, Arpeggio Group) become Performance controls that target each part's
 parameters (RFC 0011 / RFC 0002), or are folded into the part parameters by the converter when they
 are static. Parameters (stable IDs):
@@ -204,12 +212,35 @@ Switch, Hold, Key Mode, Velocity Mode, Trigger, Loop, Play Only, Unit Multiply, 
 Quantize Strength, Swing, Velocity Rate, Gate Rate, Octave Range, Output Octave, Note Low, Note High,
 Velocity Low, Velocity High, Change Timing, Accent Threshold, Accent Quantize, Random SFX, SFX
 Velocity Offset, SFX Key Velocity, Fixed SD/BD, Sync Quantize, Slot, Slot 1–8 Velocity Offset,
-Slot 1–8 Gate Offset, Record, Record Bars, Record Convert. Phrase slots live in the state.
+Slot 1–8 Gate Offset, Record, Record Bars, Record Convert, Chord Source. Phrase slots live in the state.
 
 No pitch limit applies beyond the documented parameter ranges: walkers span their octaves plus
 the full Octave Range, and only the MIDI key range (0–127, folded by octaves) bounds the result.
 
-### 4.4 What the converter needs
+### 4.4 Chord Source
+
+**Chord Source** (stepped: Own keys, Harmony; module Arpeggio; default Own keys) says which keys the
+phrase plays on. Own keys is the reference's behaviour: the chord of the keys the arpeggiator holds,
+which Hold and Toggle latch and its limits filter. Harmony plays on the part's chord as Oscairn
+reports it (`oscairn.harmony`, RFC 0033, asked for through the event registry): the keys held at the
+part's input through its zones, which a host may give from elsewhere (the hosted test gives the
+chord held in a lower zone while the arpeggiator's own input hears the upper one). With Harmony:
+
+- the arpeggiator's own keys still start, hold and stop it: Trigger, Hold, Loop, Sync Quantize,
+  Accent, SFX and Direct work on them as before, and the note and velocity limits apply to them, not
+  to the host's keys;
+- the note list, held-count ranges, template notes, style tracks and chord filters use the host's
+  keys, in pitch order (Key Mode Thru has no played order to keep), each with the velocity of the
+  first own key held (for Velocity Mode Thru);
+- the host's chord changes take effect at their sample; when the host reports no keys the last chord
+  stays, so the arpeggio carries on through a released chord (with Hold On it also outlives the own
+  keys); before the host has reported any keys the own keys are used;
+- in a host without `oscairn.harmony` it behaves as Own keys.
+
+Converted Performances leave it at Own keys (the converter does not write it, and a state without
+the parameter keeps its default).
+
+### 4.5 What the converter needs
 
 `performance-converter` (MIT, published) maps each Part's arp block to these parameters (value
 tables in phrase-format.md, "Converter notes") and each `Arp n Number` to a phrase file. Arp file
@@ -217,7 +248,8 @@ reading is plain format reading (chunked file, config fields, events) and belong
 nothing needs the instrument plugin's code or tables at run time. That reading is
 `perfconv/arp.py` in `performance-converter`, which also places the arpeggiator first in each
 converted Part with its settings, folds the Performance-level values into each Part and carries
-the phrases as library assets.
+the phrases as library assets: the node's references marked `optional`, and an `asset` line per
+slot in the state (from converter commit 373f088).
 
 ## 5. Converting the instrument's arpeggios
 
@@ -252,7 +284,7 @@ performance file while playing timed notes and controllers (host tempo 120 BPM).
   no quantize; arps such as `1/16 Up Oct1`, `MA_Pf Arp1`, `MA_ChordRandom2`, `1/16 Up/Down B Oct1`,
   `MC_6/8 Ballad`), then each rule R1–R25.
 
-**Proposed gate (for Jacob to confirm):** per probe, every note matched; keys exact; onset times
+**Gate (accepted by Jacob, decision 1):** per probe, every note matched; keys exact; onset times
 within 2 ms of the reference after alignment (recorder resolution about one I/O buffer, so
 differences are judged relative to the first note of the same render); velocity within ±1 after
 calibration; gate length within 5 ms. A probe passes only if every note passes.
@@ -266,13 +298,14 @@ calibration; gate length within 5 ms. A probe passes only if every note passes.
 | M2 | Extractor and converter notes | All factory and user arps convert and parse |
 | M3 | Measurements of the most used settings and arps | Proposed gate on each probe |
 | M4 | Style tracks (R25), accent (R17), SFX (R18), Fixed SD/BD (R19) measured | Proposed gate |
-| M5 | Record mode (done, tested), MIDI import in the C++ library, phrase editor operations, asset references | Tests; editor description draft agreed with Oscairn |
+| M5 | Record mode (done, tested), MIDI import in the C++ library, phrase editor operations, asset references (done, tested: optional, embedded fallback) | Tests; editor description draft agreed with Oscairn |
 | M6 | Motion-sequencer lanes on the same engine | Separate plan |
 
 ## 8. Alignment with Oscairn RFC 0032
 
-RFC 0032 (Oscairn's side of the arpeggiator) was read at Oscairn commit 6396d9c. This plan agrees
-with it except where noted:
+RFC 0032 (Oscairn's side of the arpeggiator) was read at Oscairn commit 6396d9c and again at
+3b58efe, whose SDK headers (`beat.h`, `assets.h`, `harmony.h`) are vendored unchanged in
+`third_party/oscairn-clap` (commit in `upstream.json`). This plan agrees with it except where noted:
 
 - **Pushed phrases are parsed on the main thread** (resolves RFC 0032's open question and an
   earlier disagreement between this plan and the format document). The audio thread only copies the
@@ -289,13 +322,17 @@ with it except where noted:
   outs (for messages sent past the arpeggiator) is the host's side.
 - **Stopped transport:** see 4.2; the plugin reads `oscairn.beat`. A song-position jump while
   playing starts a running phrase again, at the next Sync Quantize line when one is set (RFC 0032).
-- **`oscairn.harmony`** (the part's key, scale and chord) is not read, for Jacob to decide: the
-  arpeggio's chord is the chord of the keys it holds, which Hold and Toggle latch after release and
-  its note and velocity limits filter, while the host's chord is of the keys held at the part's input
-  now; and the phrase format's chord table (35 types, on-bass chords) is richer than the host's 22.
-  Reading the host's chord would make style tracks and chord filters differ from the reference when
-  keys are latched, and give nothing the plugin does not already compute. The instrument's
-  arpeggiator has no key or scale setting.
+- **`oscairn.harmony`** is read only with **Chord Source** set to Harmony (section 4.4, decision 10),
+  off by default and in converted Performances: by default the arpeggio's chord is the chord of the
+  keys it holds, as the reference's is (correct under Hold and Toggle, which latch keys the host no
+  longer counts as held). With Harmony the plugin takes the host's held keys, not its chord type, and
+  names the chord with its own table (35 types, on-bass chords; the host's has 22). The key and scale
+  are not used: the instrument's arpeggiator has no key or scale setting.
+- **Optional phrase assets** (RFC 0032 "In the library", RFC 0009 draft 2): each slot's asset
+  reference is in the state and declared optional (section 3), so a deleted phrase file leaves its
+  Performances and Sounds loading and playing their embedded copies, with a notice from Oscairn.
+- **Node role:** `arpeggiator` on the node, set by the converter (RFC 0032 "Conversion"; not yet
+  written by it as of commit 373f088); section 4.3.
 - **Hosted test (RFC 0032 step 2):** `tests/oscairn/` builds against an Oscairn source tree (by
   hand, not in CI) and checks, in Oscairn's engine: notes out as the phrase says, the same at 256-
   and 37-sample blocks in the engine and in a worker; a pushed phrase; two arpeggiators added 100 ms
@@ -303,6 +340,11 @@ with it except where noted:
   before the change: block-size dependent, off the grid); and a converted Performance installed from
   its library archive, loading the arpeggiator and Octet with no stand-ins, arpeggiating with the
   Switch on and not with it off, saving and loading with the same audio and the state byte for byte.
+  Since then: Chord Source Harmony, with the chord held in a lower zone given as the arpeggiator's
+  harmony (`Graph::setHarmonies`) while its input hears the upper zone, plays that chord; off, its own
+  key (engine and worker, 256- and 37-sample blocks; fails with the plugin from before the change).
+  Oscairn's sessions give each part the harmony of its own input, so a chord from another Part is
+  given at the graph level here.
 - **Recording by playing:** the plugin has its own record mode (Record, Record Bars, Record Convert;
   phrase-format.md), which works in any CLAP host and needs nothing from Oscairn. RFC 0032's host
   note capture with a **Make phrase** action would give retroactive capture; it should call the same
@@ -334,6 +376,7 @@ reproduce, where in the code. Entries are added as measurements find them and re
 | KD18 | The reference applies a Part's Note Limits (and Note Shift) to what its arpeggio plays: every Part's arpeggio hears every key. In Oscairn a part's zones filter the keys before the plugin | Performances with arpeggio Parts split by note limits: two parts limited to 0–79 and 80–127 play one walk over all four held keys, each sounding its own range (`sync2`, `sync2_off`) | Oscairn's part input filters keys | Handled by the converter: with an arpeggio, the limits and Note Shift go on the note wire after the arpeggiator and the part's input keeps only the velocity limits (velocity limits after the arpeggio are not measured). Whether Oscairn filters on that wire as at a part's input is not verified | Two parts with arps and split note limits, keys in both ranges | `performance-converter`, `perfconv/performance.py` |
 | KD19 | `bounce2`: the reference leaves out the phrase's first event (`p0-1`) on every pass; the engine plays it | `MA_Melody12` (`bounce2`), both passes | Unknown (one probe) | Unresolved | `bounce2` probe | `Player::playEvent` (bounce2) |
 | KD20 | `bounce`: three notes start 12–14 ms earlier in the reference, and last as much longer, than the engine plays them | `MA_Tracker 1 Synth1 _N` at 1.30, 2.06 and 4.30 s of `bounce` | Unknown: possibly the analysis (overlapping notes of neighbouring keys) | Unresolved | `bounce` probe | — |
+| KD21 | Chord Source Harmony plays on the host's chord (`oscairn.harmony`) instead of the held keys; the reference has no such setting | Only with Chord Source set to Harmony; off by default and in converted Performances | An extension for Oscairn (decision 10) | Deliberate | `tests/test_player.cpp`, `chord_source_harmony_…` | `Player::chordKeys`, `Player::setHarmony` |
 
 ## 10. Measurement results
 
@@ -457,7 +500,8 @@ Reading the failures (other than the known differences above):
 
 ## 11. Decisions for Jacob
 
-1. Proposed measurement gate (section 6): 2 ms onset, keys exact, velocity ±1, gate 5 ms.
+1. Measurement gate (section 6): 2 ms onset, keys exact, velocity ±1, gate 5 ms. **Accepted**
+   (2026-11-02).
 2. Sustain pedal: latches arp keys and is not forwarded while the arp owns them (section 4.1).
 3. Style tracks (R25) ship approximate at first, flagged in the converter report, rather than
    being left out.
@@ -467,3 +511,9 @@ Reading the failures (other than the known differences above):
 6. Performance-level arp settings: static values folded into each part by the converter; values
    that scenes change become Performance controls.
 7. Name of the format and extension: `oscairn-phrase` / `.ophr`.
+8. Arpeggio Master Switch folded into each Part's Switch by the converter until Performance
+   controls are used. **Accepted** (2026-11-02).
+9. Rules measured on a few points (section 1.2) accepted as they stand, with more probes later.
+   **Accepted** (2026-11-02).
+10. `oscairn.harmony`: the held chord stays the arpeggiator's own by default; an option, off by
+    default, follows the host's chord instead (Chord Source, section 4.4). **Decided** (2026-11-02).
