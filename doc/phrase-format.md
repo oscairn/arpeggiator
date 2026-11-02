@@ -124,7 +124,16 @@ slot N BYTES          # then exactly BYTES bytes of phrase text and a newline
 ```
 
 Slots without a `slot` entry are empty. Parameter IDs are listed in `src/plugin.cpp`
-(1 Switch … 28 Slot, 29–36 slot velocity offsets, 37–44 slot gate offsets) and never change.
+(1 Switch … 28 Slot, 29–36 slot velocity offsets, 37–44 slot gate offsets, 45 Record,
+46 Record Bars, 47 Record Convert) and never change.
+
+## Record mode
+
+With **Record** armed, the arpeggiator passes played keys straight through and captures them:
+the first key starts a recording of **Record Bars** bars (4/4 at the host tempo); keys still
+held at the end last to it. Record then switches itself off and the main thread writes the take
+into the selected slot as a phrase, converted like a MIDI clip (**Record Convert**: Fixed,
+Relative, or Chord, where the chord is the keys played within 30 ticks of the first one).
 
 ## Pushing a phrase at run time
 
