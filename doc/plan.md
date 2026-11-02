@@ -1,6 +1,6 @@
 # Oscairn Arpeggiator: plan
 
-Status: 2026-11-01. Owner: Jacob Schooley.
+Status: 2026-11-02. Owner: Jacob Schooley.
 
 A phrase-based arpeggiator for [Oscairn](https://github.com/oscairn/oscairn): a CLAP note effect
 that turns held keys into notes and controllers by playing a *phrase*, a short looped pattern whose
@@ -69,29 +69,29 @@ Measured or explicitly accepted by Jacob.
 | --- | --- | --- |
 | R1 | A phrase has up to 16 tracks that play together; each track sounds only while the number of held keys is within its own minimum and maximum. Factory phrases use this to give 1, 2, 3 and 4+ held keys different patterns | Measured for 3 held keys (`rnb3`); keys and timing for 1, 2, 3 held (`pf*_hi`) with the exceptions in section 9 |
 | R2 | A track's note list is its template notes (each either following the chord or absolute) followed by the held keys, optionally without the first held key; or only the held keys | Measured (template + held: `rnb3`) |
-| R3 | Held keys are listed by pitch (Sort) or in the order played (Thru); Direct passes the played keys through; Direct alone plays only the phrase's controllers | Sort and Thru Measured; Direct to measure |
+| R3 | Held keys are listed by pitch (Sort) or in the order played (Thru); Direct passes the played keys through; Direct alone plays only the phrase's controllers | Sort, Thru and Direct Measured (`direct`); Sort+Direct: played keys and arp notes on the same keys cannot be told apart by the analysis (`sortdirect`) |
 | R4 | Template notes that follow the chord move with the lowest held key and snap their 2nd, 3rd/4th, 5th and 6th/7th degrees to the held chord's intervals | Measured on a major triad (`rnb3`); other chords to measure |
-| R5 | Twelve selection rules: by position (none, last or first when the list is shorter), bouncing and cycling positions, walkers up, down, up-down (ends once or twice) and random over 1–4 octaves, and style transposition of literal pitches | Measured: index, walker up (1 and 2 octaves), up-down (ends once). Random: timing only (the reference's random sequence is not reproduced, KD13). Others to measure |
+| R5 | Twelve selection rules: by position (none, last or first when the list is shorter), bouncing and cycling positions, walkers up, down, up-down (ends once or twice) and random over 1–4 octaves, and style transposition of literal pitches | Measured: index, cycle, bounce (keys and order; three onsets off, KD20), bounce2 (all but its first note, KD19), walker up (1 and 2 octaves), up-down ends once (B) and twice (A, `updown_a`). Random: timing and the keys it picks from (the reference's random sequence is not reproduced, KD13). Down to measure |
 | R6 | Position notes carry an octave shift of −4 … +3 | Measured (−1: `pf*_hi`) |
 | R7 | Octave Range moves the whole phrase one octave further on each repetition until the range is reached, then starts over; for walkers it widens the walked octaves | Walker Measured (+1, `oct_walk`); index phrase: matched notes agree in key and timing, short notes the analysis cannot separate remain (`oct_idx_hi`) |
 | R8 | Output Octave Shift moves every chord-relative note; absolute template notes stay | Measured for chord notes (−1, `outoct_hi`); absolute notes to measure |
-| R9 | Velocity: the phrase's (Original) or the played key's (Thru), times Velocity Rate plus the slot offset; 0 becomes 1, above 127 becomes 127 | Measured: Original, Thru, rate 50 % (non-overlapping notes, KD15) |
+| R9 | Velocity: the phrase's (Original) or the played key's (Thru), times Velocity Rate plus the slot offset; 0 becomes 1, above 127 becomes 127 | Measured: Original, Thru, rate 50 % (velocity judged where the probe can tell it, section 10) |
 | R10 | Gate: the phrase's gate times Gate Rate plus the slot offset; 0 becomes 1 | Measured: 50 % and 200 % (gate times) |
 | R11 | Unit Multiply scales event times and gates by 50, 66.7, 75, 100, 133.3, 150, 200, 266.7, 300 or 400 % | Measured: 66 % and 200 % |
-| R12 | Quantize moves events toward the Quantize Value grid by Strength; Swing delays the grid's even-numbered positions, with or without quantize strength | Swing timing Measured (+40, with strength 0 and 100); strength between 0 and 100 to measure |
+| R12 | Quantize moves events toward the Quantize Value grid by Strength; Swing delays the grid's even-numbered positions, with or without quantize strength | Swing timing Measured (+40, with strength 0 and 100); strength 25 and 50 Measured on `MA_Pf Arp1` (`q25_pf`, `q50_pf`: every note in time) |
 | R13 | Hold Off stops at the last release, ending sounding notes; On keeps the chord until the next gesture replaces it; Sync-Off ends sounding notes at the release but keeps the phrase position running silently and resumes in place | Measured (`uprel`, `holdon`, `syncoff`) |
 | R14 | Trigger Toggle: a gesture (keys pressed together) starts the arp, the next stops it | Measured (`toggle`) |
 | R15 | Loop Off: one pass per gesture | Measured (`loopoff`) |
-| R16 | Note and velocity limits decide which keys feed the arp; with the arp on, keys outside the note limits do not sound, keys outside the velocity limits play as they are; Low above High selects the outer ranges | Measured (both, normal ranges); inverted ranges to measure |
-| R17 | A played velocity at or above the Accent threshold adds the phrase's accent tracks, on top of the normal ones, for one pass, at the quantize grid if Accent Start Quantize is on | Measured: accent tracks add, below the threshold nothing changes (`house_acc`, `house_noacc`); start timing to measure |
-| R18 | Random SFX: a key release plays a random note from the phrase's SFX ranges at a random velocity in its range (or the key's velocity, with Key On Control), plus the velocity offset | Manual; to measure |
-| R19 | Fixed SD/BD maps the phrase's kick and snare variants onto the kit's main kick (36) and snare (38) | To measure |
+| R16 | Note and velocity limits decide which keys feed the arp; with the arp on, keys outside the note limits do not sound, keys outside the velocity limits play as they are; Low above High selects the outer ranges | Measured, normal and inverted ranges (`notelim_inv`, `vellim_inv`) |
+| R17 | A played velocity at or above the Accent threshold adds the phrase's accent tracks, on top of the normal ones, for one pass, at the quantize grid if Accent Start Quantize is on; an accent started after the phrase leaves out the normal tracks' notes in its first quarter note | Measured: accent tracks add, below the threshold nothing changes (`house_acc`, `house_noacc`); started mid-phrase at four places, with and without start quantize (`house_late`, `acc_*`: every note matched); the quarter-note window is fitted (dropped up to 288 ticks after the start, kept from 485) |
+| R18 | Random SFX: a key release the arpeggio plays on through plays a random note from the phrase's SFX ranges at a random velocity in its range (or the key's velocity, with Key On Control), plus the velocity offset; the release that ends the arpeggio plays none | Measured: which releases sound one and when (`sfx_seq`, `sfx_nc`); the keys are random (KD13) |
+| R19 | Fixed SD/BD maps the phrase's kick and snare variants onto the kit's main kick (36) and snare (38), on Drum Parts | Measured: no effect on an FM-X Part (`sdbd_on`, `sdbd_off`), so the converter sets it only on Drum Parts; the mapping on a Drum Part is not measured (the probe is an FM sound) |
 | R20 | Phrase controllers (CC, pitch bend, pressure) play on their ticks while the track's held-count range is met and, for tracks with a chord filter, the held chord passes it | To measure |
 | R21 | Change Timing: a new slot starts immediately or at the next bar | Manual; to measure |
-| R22 | Sync Quantize: a starting arp waits for the next grid line so parts started together stay together | Manual; to measure |
+| R22 | Sync Quantize: a starting arp waits for the next grid line so parts started together stay together | Manual; shared grid while stopped tested hosted in Oscairn; reference multi-part start measured in `b6` (section 10) |
 | R23 | Per-track randomize: notes in a key/velocity window get a random key and velocity offset | To measure |
 | R24 | Walker positions continue across loops; they restart with the arp | To measure |
-| R25 | Style tracks transpose literal pitches written for a source chord to the held chord, with per-range rules (root transposition or fixed, transposition table, bass, range folding) and a chord filter | Approximate first; to measure |
+| R25 | Style tracks transpose literal pitches written for a source chord to the held chord, with per-range rules (root transposition or fixed, transposition table, bass, range folding) and a chord filter. Root-fixed voices starting together are voiced together: tones of the held chord in their own register, a chord of four or more tones without its root, every tone covered where there are voices enough, least motion, ties upward | Root-fixed (table 2) Measured on C, Dm7, G7 (`soul_*_2`); root-transposed and other tables approximate |
 
 R25 (about 30 % of factory tracks, mostly "_C"/genre arps) needs chord recognition and the note
 transposition tables; it lands as an approximation (milestone M4) and is measured separately.
@@ -185,11 +185,12 @@ while the transport plays (RFC 0012: Oscairn's transport, internal or following 
 Link), so every part's arpeggiator lines up. A playing-to-stopped transport transition ends all
 sounding notes. Unit Multiply scales the arp clock against the tempo.
 
-**While the transport is stopped** there is no shared beat grid yet (RFC 0032 step 3 adds a
-free-running host beat). Until then Sync Quantize waits for the next grid line of the instance's
-own arp clock, which starts when the instance activates: starts quantize correctly within one part,
-but two parts are not guaranteed to land on the same grid line (Known differences, KD6). When the
-host's free-running beat exists, the plugin reads it exactly as it reads the playing transport.
+**While the transport is stopped** the plugin reads the host's free-running beat
+(`oscairn.beat`, RFC 0032 step 3: an event at sample 0 of each block, asked for through CLAP's event
+registry) exactly as it reads the playing transport, so parts started together on a stopped
+transport start on the same grid line. A process call without the event (a split block) moves the
+position on at its tempo. In a host without the event, Sync Quantize waits for the next grid line
+of the instance's own clock (KD6). A transport start does not count as a song-position jump.
 
 ### 4.3 One instance per Part
 
@@ -280,15 +281,28 @@ with it except where noted:
   has parsed it. Latency is one main-thread round trip, not sample-exact as RFC 0032's
   "at an exact sample" puts it (KD9). One push is in flight at a time; another arriving meanwhile
   is dropped (to be counted once the host has a place to report it).
-- **The in-band push waits for RFC 0032 step 1** (SysEx between plugins). Until Oscairn's graph
-  carries `CLAP_EVENT_MIDI_SYSEX`, the push works with hosts that deliver SysEx; it is tested with
-  this repository's own test host (`tests/test_plugin.cpp`).
+- **The in-band push through Oscairn's graph** (RFC 0032 step 1) is tested hosted
+  (`tests/oscairn/`, below): a plugin before the arpeggiator pushes a phrase at sample 1000 and the
+  chord played at sample 3000 plays it, at 256- and 37-sample blocks, in the engine and in a worker.
 - **The `7D` message never leaves the plugin:** the arpeggiator consumes every SysEx it receives
   and emits none, so the push cannot reach a MIDI out through it. Filtering `7D` at hardware MIDI
   outs (for messages sent past the arpeggiator) is the host's side.
-- **Stopped transport:** see 4.2; the plugin uses its own clock until the free-running beat exists.
-  A song-position jump while playing starts a running phrase again, at the next Sync Quantize line
-  when one is set (RFC 0032).
+- **Stopped transport:** see 4.2; the plugin reads `oscairn.beat`. A song-position jump while
+  playing starts a running phrase again, at the next Sync Quantize line when one is set (RFC 0032).
+- **`oscairn.harmony`** (the part's key, scale and chord) is not read, for Jacob to decide: the
+  arpeggio's chord is the chord of the keys it holds, which Hold and Toggle latch after release and
+  its note and velocity limits filter, while the host's chord is of the keys held at the part's input
+  now; and the phrase format's chord table (35 types, on-bass chords) is richer than the host's 22.
+  Reading the host's chord would make style tracks and chord filters differ from the reference when
+  keys are latched, and give nothing the plugin does not already compute. The instrument's
+  arpeggiator has no key or scale setting.
+- **Hosted test (RFC 0032 step 2):** `tests/oscairn/` builds against an Oscairn source tree (by
+  hand, not in CI) and checks, in Oscairn's engine: notes out as the phrase says, the same at 256-
+  and 37-sample blocks in the engine and in a worker; a pushed phrase; two arpeggiators added 100 ms
+  apart starting on the same beat line with the transport stopped (fails with the plugin from
+  before the change: block-size dependent, off the grid); and a converted Performance installed from
+  its library archive, loading the arpeggiator and Octet with no stand-ins, arpeggiating with the
+  Switch on and not with it off, saving and loading with the same audio and the state byte for byte.
 - **Recording by playing:** the plugin has its own record mode (Record, Record Bars, Record Convert;
   phrase-format.md), which works in any CLAP host and needs nothing from Oscairn. RFC 0032's host
   note capture with a **Make phrase** action would give retroactive capture; it should call the same
@@ -296,8 +310,8 @@ with it except where noted:
   `tools/midi_to_phrase.py`); moving MIDI import into the C++ library as the `phrase.import-midi`
   operation RFC 0032 describes is milestone M5. Whether both recorders are kept is Jacob's call.
 - **`author` and `tags`** are in the format before version 1 is frozen.
-- **Style tracks (R25):** the transposition is an approximation built from chord-tone rules; the
-  tables are to come from measurement (KD1).
+- **Style tracks (R25):** root-fixed voices follow a rule measured on three chords; root-transposed
+  voices remain an approximation built from chord-tone rules (KD1).
 
 ## 9. Known differences from the reference
 
@@ -306,101 +320,140 @@ reproduce, where in the code. Entries are added as measurements find them and re
 
 | # | What | Size and where | Cause | Status | Reproduce | Code |
 | --- | --- | --- | --- | --- | --- | --- |
-| KD1 | Style tracks (R25) transpose source pitches by root plus chord-tone rules, not the reference's transposition tables | Style tracks on chords other than their source chord: `MA_Soul 1 _C` matches on C (`soul_c2`) but differs on Dm7 (27 of 36 notes, 9 missing) and G7 (all 36: the reference moves the voices G C E G down to F B D F) | Tables unknown; to be measured | Unresolved | `arp-render` a converted style phrase (for example `MA_Soul 1 _C`) on Dm7 and compare with the reference render | `Player::playStyle` |
+| KD1 | Style tracks (R25): root-transposed voices move by root plus chord-tone rules, not the reference's transposition tables; root-fixed voices follow a rule measured only for table 2 on three chords | Root-transposed style tracks on chords other than their source chord, and root-fixed tracks with other tables or chords (unmeasured). `MA_Soul 1 _C` now matches every key and time on C, Dm7 and G7 (`soul_c2`, `soul_dm7_2`, `soul_g7_2` pass); before: Dm7 27 of 36 notes, G7 none | Tables unknown; root-fixed rule fitted to three chords | Unresolved for root-transposed and other tables | `arp-render` a converted style phrase with root-transposed tracks on a chord other than its source chord | `Player::playStyle`, `Player::playStyleGroup` |
 | KD2 | A chord change while style notes sound does not re-pitch or stop them (the `rule … RETRIGGER` field is read but unused) | Style tracks only | Not implemented | Unresolved | Change the chord mid-note on a style phrase | `Player::playStyle` |
 | KD3 | Chord recognition (for chord filters and style tracks) uses the plugin's own interval table; unusual voicings may be named differently | Chord filters with partial masks, style tracks | Own design | Unresolved, to measure | Hold an unusual voicing on a style phrase | `Player::detectChord` |
 | KD4 | Walkers have no octave ceiling: octaves plus the full Octave Range are walked | Walker tracks with many octaves and a large positive Octave Range; the reference may limit the span (to measure) | Jacob's rule: no limit beyond parameter ranges | Deliberate | `octaves 4` phrase with Octave Range +3 | `Player::playEvent`, walker branch |
 | KD5 | A key-count remapping field in the instrument's arp files (unused by every factory file) has no equivalent | None in factory content | No data uses it | Deliberate | The converter's report lists any file that sets it | `performance-converter`, `perfconv/arp.py` |
-| KD6 | Sync Quantize with the transport stopped aligns to the instance's own clock, not a shared grid | Parts started together on a stopped transport may differ by up to one grid step | No shared beat while stopped (RFC 0032 step 3) | Deliberate until the host adds the beat | Two instances activated at different times, transport stopped, Sync Quantize 480 | `Player::startPhrase` |
+| KD6 | In hosts without `oscairn.beat`, Sync Quantize with the transport stopped aligns to the instance's own clock, not a shared grid (in Oscairn it uses the host's free-running beat) | Other hosts only: parts started together on a stopped transport may differ by up to one grid step | Such hosts give no shared beat while stopped | Deliberate | `tests/test_plugin.cpp`, free-beat case with the plain host | `Plugin::process` (free beat), `Player::startPhrase` |
 | KD9 | Pushed phrases take over a block after the main thread parses them, not at the event's sample | All pushes | Parsing must not run unbounded on the audio thread | Deliberate | `tests/test_plugin.cpp`, push case | `Plugin::sysex`, `Plugin::mainThread` |
 | KD10 | SysEx other than the push message is dropped, not passed on | Any SysEx on the note input | Keeps private messages inside the plugin | Deliberate | Send any SysEx through | `Plugin::sysex` |
 | KD11 | Literal-note and fallback events of user arps recorded on the instrument are not converted | User arps made with the instrument's recording (none in Jacob's set) | No sample files to verify their layout | Unresolved | Convert such a file; the report names it | `perfconv/arp.py` |
 | KD12 | A 4-byte controller record in 18 factory arps is skipped | Those 18 phrases | Meaning unknown | Unresolved | Converter report (`event B2 skipped`) | `perfconv/arp.py` |
 | KD13 | Random walkers and random phrases play a different random sequence | Every `random` track (`cr`, `cr_hi`, `q50`); timing matches, keys cannot | The plugin's own seeded generator, so renders repeat exactly | Deliberate | `cr_hi` probe | `Player::nextRandom` |
-| KD14 | A note on the same key starting about 10 ticks after another ends sounds, in the reference, as one long quieter note | `MA_Pf Arp1` with one held key, at 2.57 s of `pf1_hi` (also `pf2_hi`, `pf3_hi`) | Unknown | Unresolved | `pf1_hi` probe | `Player::noteOn` (same-key handling) |
-| KD15 | Notes that overlap other notes read 2–4 velocity steps away from the engine's, while isolated notes agree within ±1 | `swing`, `gate200`, chords in `bal3_hi`, `syn_hi`, `house_acc` | Unknown: the arp's velocity, or how the probe sound mixes voices | Unresolved | Those probes | `Player::sendNote` |
-| KD16 | An accent started mid-phrase: the engine plays one normal-track note the reference leaves out | `house_late` at 2.03 s | Accent start rule not yet known | Unresolved | `house_late` probe | `Player::keyOn` (accent), `Player::advanceTo` |
-| KD17 | Random SFX: in the New Country probe the reference played no SFX note at the releases where the engine plays one | `sfx_nc` | Unknown (conditions for SFX) | Unresolved | `sfx_nc` probe | `Player::playSfx` |
+| KD18 | The reference applies a Part's Note Limits (and Note Shift) to what its arpeggio plays: every Part's arpeggio hears every key. In Oscairn a part's zones filter the keys before the plugin | Performances with arpeggio Parts split by note limits: two parts limited to 0–79 and 80–127 play one walk over all four held keys, each sounding its own range (`sync2`, `sync2_off`) | Oscairn's part input filters keys | Handled by the converter: with an arpeggio, the limits and Note Shift go on the note wire after the arpeggiator and the part's input keeps only the velocity limits (velocity limits after the arpeggio are not measured). Whether Oscairn filters on that wire as at a part's input is not verified | Two parts with arps and split note limits, keys in both ranges | `performance-converter`, `perfconv/performance.py` |
+| KD19 | `bounce2`: the reference leaves out the phrase's first event (`p0-1`) on every pass; the engine plays it | `MA_Melody12` (`bounce2`), both passes | Unknown (one probe) | Unresolved | `bounce2` probe | `Player::playEvent` (bounce2) |
+| KD20 | `bounce`: three notes start 12–14 ms earlier in the reference, and last as much longer, than the engine plays them | `MA_Tracker 1 Synth1 _N` at 1.30, 2.06 and 4.30 s of `bounce` | Unknown: possibly the analysis (overlapping notes of neighbouring keys) | Unresolved | `bounce` probe | — |
 
 ## 10. Measurement results
 
-Recorded 2026-11-01 (batches `b3`–`b5` under `forks/measurements/arp/`, not in this repository) with
+Recorded 2026-11-01 (batches `b3`–`b6` under `forks/measurements/arp/`, not in this repository) with
 the probe described in section 6 and compared with `arp-render` on the converted phrases (analysis:
 `oscairn/measurement`, `arp/compare.py`; the table's Merged column was always 0 through a counting
-bug, fixed there: `cr_hi` merges 10 notes, `q50` 27, the others none). Each
+bug, fixed there: `cr_hi` merges 10 notes, `q50` 27, the others none). All batches compared again
+on 2026-11-02 with the plugin and analysis as of then; the analysis now splits same-key notes at
+gaps a 10 ms window shows, judges velocity only where the probe can tell it (below) and reads keys
+up to 127. Each
 render is aligned per phrase start (median offset), since the recorder places key events only within
 an I/O buffer. Velocity uses a calibration sweep (velocities 3–121 resolvable; 1 and 2 are below the noise
 floor; 122–123 read the same, as do 124–127).
 
-| Probe | Ref notes | Engine notes | Merged (unresolvable) | Unmatched | Onset max (ms) | Velocity max | Gate max (ms) | Gate |
+| Probe | Ref notes | Engine notes | Merged | Unmatched | Onset max (ms) | Velocity max | Gate max (ms) | Gate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| oct_walk | 32 | 32 | 0 | 0 | 0.74 | 0 | 1.16 | pass |
-| oct_idx | 114 | 126 | 0 | 12 | 3.04 | 2 | 4.97 | fail |
-| unit200 | 16 | 16 | 0 | 0 | 0.73 | 0 | 0.42 | pass |
-| unit66 | 36 | 36 | 0 | 0 | 0.7 | 0 | 0.95 | pass |
-| swing | 24 | 24 | 0 | 0 | 1.03 | 2 | 2.44 | fail |
-| thru | 24 | 24 | 0 | 0 | 0.69 | 0 | 1.16 | pass |
-| outoct | 16 | 24 | 0 | 40 | — | — | — | fail |
-| holdon | 36 | 36 | 0 | 0 | 0.73 | 0 | 1.16 | pass |
-| syncoff | 26 | 26 | 0 | 0 | 0.71 | 0 | 9.65 | fail |
-| toggle | 20 | 20 | 0 | 0 | 0.71 | 0 | 1.16 | pass |
-| loopoff | 16 | 16 | 0 | 0 | 0.72 | 0 | 1.16 | pass |
-| notelim | 24 | 24 | 0 | 0 | 0.73 | 0 | 1.12 | pass |
+| oct_walk | 32 | 32 | 0 | 0 | 0.73 | 0 | 1.17 | pass |
+| oct_idx | 116 | 126 | 0 | 10 | 2.65 | — | 43.94 | fail |
+| unit200 | 16 | 16 | 0 | 0 | 0.73 | 0 | 0.43 | pass |
+| unit66 | 36 | 36 | 0 | 0 | 0.69 | 0 | 0.96 | pass |
+| swing | 24 | 24 | 0 | 0 | 1.16 | 0 | 1.96 | pass |
+| thru | 24 | 24 | 0 | 0 | 0.69 | 0 | 1.17 | pass |
+| outoct | 0 | 24 | — | — | — | — | — | fail |
+| holdon | 36 | 36 | 0 | 0 | 0.73 | 0 | 1.17 | pass |
+| syncoff | 26 | 26 | 0 | 0 | 0.71 | 0 | 9.66 | fail |
+| toggle | 20 | 20 | 0 | 0 | 0.71 | 0 | 1.17 | pass |
+| loopoff | 16 | 16 | 0 | 0 | 0.72 | 0 | 1.17 | pass |
+| notelim | 24 | 24 | 0 | 0 | 0.73 | 0 | 1.13 | pass |
 | vel0 | 0 | 16 | — | — | — | — | — | fail |
-| gate200 | 16 | 16 | 0 | 0 | 0.98 | 2 | 9.54 | fail |
-| accent_hi | 25 | 61 | 0 | 36 | 1.0 | 1 | 1.62 | fail |
-| accent_lo | 27 | 61 | 0 | 80 | 0.65 | 0 | 1.38 | fail |
-| sfx | 6 | 20 | 0 | 26 | — | — | — | fail |
+| gate200 | 16 | 16 | 0 | 0 | 0.8 | — | 9.31 | fail |
+| accent_hi | 25 | 61 | 2 | 36 | 0.71 | 1 | 1.64 | fail |
+| accent_lo | 27 | 61 | 0 | 80 | 0.09 | 0 | 1.08 | fail |
+| sfx | 6 | 19 | 0 | 25 | — | — | — | fail |
 | soul_c | 4 | 36 | 0 | 40 | — | — | — | fail |
-| soul_dm7 | 4 | 27 | 0 | 31 | — | — | — | fail |
-| rnb3 | 40 | 40 | 0 | 0 | 0.68 | 1 | 1.76 | pass |
-| pf2 | 24 | 41 | 0 | 65 | — | — | — | fail |
-| up | 32 | 32 | 0 | 0 | 0.69 | 0 | 1.16 | pass |
-| up_b | 32 | 32 | 0 | 0 | 0.76 | 0 | 1.16 | pass |
-| udb | 32 | 32 | 0 | 0 | 0.77 | 0 | 1.23 | pass |
-| up2 | 32 | 32 | 0 | 0 | 0.72 | 0 | 1.22 | pass |
-| pf1 | 25 | 32 | 0 | 21 | 4.03 | 21 | 132.59 | fail |
-| pf3 | 33 | 44 | 0 | 75 | 0.0 | 15 | 239.1 | fail |
-| cr | 77 | 86 | 0 | 105 | 14.02 | 21 | 472.05 | fail |
-| bal3 | 14 | 13 | 0 | 1 | 2.33 | 4 | 11.08 | fail |
-| uprate | 24 | 24 | 0 | 0 | 0.74 | 0 | 2.26 | pass |
-| upthru | 24 | 24 | 0 | 0 | 0.74 | 1 | 1.16 | pass |
-| uprel | 15 | 15 | 0 | 0 | 0.68 | 0 | 3.26 | pass |
-| outoct_hi | 24 | 24 | 0 | 0 | 0.72 | 0 | 1.16 | pass |
-| pf1_hi | 33 | 32 | 0 | 3 | 6.06 | 25 | 1771.94 | fail |
-| pf3_hi | 43 | 44 | 0 | 5 | 6.17 | 27 | 1506.1 | fail |
-| pf2_hi | 39 | 41 | 0 | 6 | 5.02 | 25 | 1503.4 | fail |
-| cr_hi | 67 | 86 | 0 | 77 | 1.57 | 35 | 359.58 | fail |
-| bal3_hi | 13 | 13 | 0 | 0 | 1.4 | 4 | 3.91 | fail |
-| syn_hi | 77 | 84 | 0 | 7 | 2.97 | 2 | 4.15 | fail |
-| oct_idx_hi | 111 | 126 | 0 | 15 | 3.39 | 2 | 4.74 | fail |
-| vellim_out | 3 | 3 | 0 | 0 | 0.39 | 0 | 6.1 | fail |
-| vellim_in | 16 | 16 | 0 | 0 | 0.74 | 0 | 1.16 | pass |
-| swing_only | 24 | 24 | 0 | 0 | 0.93 | 2 | 3.34 | fail |
-| q50 | 61 | 69 | 0 | 78 | 10.61 | 47 | 64.11 | fail |
-| up_2keys | 16 | 16 | 0 | 0 | 0.71 | 0 | 1.14 | pass |
-| syncq | 24 | 24 | 0 | 0 | 0.71 | 0 | 1.16 | pass |
-| house_acc | 17 | 17 | 0 | 0 | 0.61 | 2 | 2.28 | fail |
-| house_noacc | 17 | 17 | 0 | 0 | 0.73 | 1 | 1.65 | pass |
-| house_late | 21 | 22 | 0 | 1 | 0.79 | 2 | 1.65 | fail |
-| sfx_nc | 3 | 6 | 0 | 7 | 0.0 | 14 | 506.96 | fail |
-| sfx_off | 3 | 3 | 0 | 0 | 7.82 | 12 | 19.9 | fail |
-| soul_c2 | 36 | 36 | 0 | 0 | 0.95 | 1 | 2.07 | pass |
-| soul_dm7_2 | 36 | 27 | 0 | 27 | 0.92 | 1 | 13.95 | fail |
-| soul_g7_2 | 36 | 36 | 0 | 72 | — | — | — | fail |
+| soul_dm7 | 0 | 36 | — | — | — | — | — | fail |
+| rnb3 | 40 | 40 | 0 | 0 | 0.68 | 1 | 1.77 | pass |
+| pf2 | 30 | 41 | 0 | 71 | — | — | — | fail |
+| up | 32 | 32 | 0 | 0 | 0.69 | 0 | 1.17 | pass |
+| up_b | 32 | 32 | 0 | 0 | 0.76 | 0 | 1.17 | pass |
+| udb | 32 | 32 | 0 | 0 | 0.76 | 0 | 1.24 | pass |
+| up2 | 32 | 32 | 0 | 0 | 0.68 | 0 | 1.24 | pass |
+| pf1 | 27 | 32 | 0 | 19 | 1.25 | 1 | 1.21 | fail |
+| pf3 | 38 | 44 | 0 | 76 | 22.86 | — | 597.03 | fail |
+| cr | 90 | 86 | 10 | 110 | 3.27 | 21 | 106.53 | fail |
+| bal3 | 26 | 13 | 0 | 13 | 2.65 | — | 11.55 | fail |
+| uprate | 24 | 24 | 0 | 0 | 0.74 | 0 | 2.27 | pass |
+| upthru | 24 | 24 | 0 | 0 | 0.74 | 1 | 1.17 | pass |
+| uprel | 15 | 15 | 0 | 0 | 0.68 | 0 | 3.25 | pass |
+| outoct_hi | 24 | 24 | 0 | 0 | 0.72 | 0 | 1.17 | pass |
+| pf1_hi | 36 | 32 | 0 | 4 | 0.82 | 1 | 1.8 | fail |
+| pf3_hi | 46 | 44 | 0 | 2 | 6.23 | — | 6.06 | fail |
+| pf2_hi | 42 | 41 | 0 | 1 | 6.72 | — | 5.64 | fail |
+| cr_hi | 84 | 86 | 10 | 82 | 1.47 | 35 | 2.29 | fail |
+| bal3_hi | 13 | 13 | 0 | 0 | 1.41 | — | 2.56 | pass |
+| syn_hi | 79 | 84 | 0 | 5 | 1.04 | 0 | 2.45 | fail |
+| oct_idx_hi | 117 | 126 | 0 | 11 | 2.78 | 0 | 14.63 | fail |
+| vellim_out | 3 | 3 | 0 | 0 | 0.82 | — | 5.7 | fail |
+| vellim_in | 16 | 16 | 0 | 0 | 0.74 | 0 | 1.17 | pass |
+| swing_only | 24 | 24 | 0 | 0 | 1.1 | 0 | 3.82 | pass |
+| q50 | 62 | 69 | 27 | 79 | 3.91 | 21 | 63.71 | fail |
+| up_2keys | 16 | 16 | 0 | 0 | 0.71 | 0 | 1.15 | pass |
+| syncq | 24 | 24 | 0 | 0 | 0.71 | 0 | 1.17 | pass |
+| house_acc | 17 | 17 | 1 | 0 | 0.61 | 2 | 2.3 | fail |
+| house_noacc | 17 | 17 | 0 | 0 | 0.73 | 1 | 1.66 | pass |
+| house_late | 21 | 21 | 0 | 0 | 0.79 | 2 | 1.66 | fail |
+| sfx_nc | 3 | 5 | 1 | 6 | 0.0 | — | 259.53 | fail |
+| sfx_off | 3 | 3 | 1 | 0 | 2.43 | — | 14.31 | fail |
+| soul_c2 | 36 | 36 | 0 | 0 | 0.96 | — | 1.77 | pass |
+| soul_dm7_2 | 36 | 36 | 0 | 0 | 1.32 | — | 4.17 | pass |
+| soul_g7_2 | 36 | 36 | 0 | 0 | 1.25 | — | 2.36 | pass |
+| acc_12 | 21 | 21 | 0 | 0 | 0.95 | 2 | 1.66 | fail |
+| acc_22 | 19 | 19 | 0 | 0 | 0.86 | 2 | 1.66 | fail |
+| acc_17q0 | 21 | 21 | 0 | 0 | 1.59 | 2 | 1.66 | fail |
+| sfx_seq | 6 | 6 | 2 | 10 | 0.0 | — | 246.43 | fail |
+| direct | 3 | 3 | 0 | 0 | 0.83 | — | 3.97 | pass |
+| sortdirect | 5 | 3 | 16 | 2 | 0.59 | — | 1505.49 | fail |
+| updown_a | 16 | 16 | 0 | 0 | 0.73 | 0 | 1.24 | pass |
+| bounce | 16 | 16 | 0 | 0 | 13.97 | 0 | 21.66 | fail |
+| bounce2 | 14 | 16 | 0 | 2 | 0.91 | 1 | 9.66 | fail |
+| cycle | 20 | 20 | 0 | 0 | 0.83 | 2 | 1.82 | fail |
+| random1 | 16 | 16 | 0 | 18 | 0.86 | 0 | 1.24 | fail |
+| notelim_inv | 16 | 16 | 0 | 0 | 0.72 | 0 | 1.15 | pass |
+| vellim_inv | 17 | 17 | 0 | 0 | 7.86 | — | 6.64 | fail |
+| sdbd_on | 4 | 8 | 0 | 12 | — | — | — | fail |
+| sdbd_off | 4 | 8 | 0 | 12 | — | — | — | fail |
+| q50_pf | 34 | 32 | 0 | 2 | 1.06 | 2 | 1.78 | fail |
+| q25_pf | 34 | 32 | 0 | 2 | 0.96 | 2 | 9.67 | fail |
+| sync2 | 24 | 24 | 0 | 0 | 1.74 | 0 | 2.62 | pass |
+| sync2_off | 24 | 24 | 0 | 0 | 0.73 | 0 | 1.17 | pass |
 
 Reading the failures (other than the known differences above):
 
-- **Measurement limits, not differences:** `syncoff` and `vellim_out` fail only on the gate of a note
-  ended by a key release, whose time the recorder knows only within an I/O buffer (9.7 and 6.1 ms);
-  `vel0` plays velocity 1, below the analysis floor; the first-batch probes in the low register
-  (`outoct`, `pf1`–`pf3`, `cr`, `bal3`, `soul_*`, `accent_*`, `sfx`) cannot separate neighbouring keys
-  and were re-recorded an octave or more higher (`*_hi`, `soul_*_2`, `house_*`, `sfx_nc`);
-  `oct_idx`, `oct_idx_hi` and `syn_hi` leave 7–15 short notes unresolved where a quiet short note
-  follows a loud one on the same key within ~15 ms (checked by hand at 0.81 s of `oct_idx`: the
-  reference does play the note).
-- **Random:** `cr`, `cr_hi`, `q50` use random tracks (KD13).
-- **Open:** KD14–KD17, and style tracks (KD1).
+- **Former known differences that were the analysis:** KD14 (a same-key note 10 ticks after
+  another): at a 10 ms window the reference plays both notes as the engine does; the analysis now
+  splits them (`pf1_hi` now matches every note). KD15 (velocities of overlapping notes 2–4 steps
+  off): played directly with the arpeggio off, notes overlapping notes a third away read up to 5
+  steps high (`k15_overlap`) while chords read exactly (`k15_chord`), the probe's level takes the
+  same value for several velocities above 100, and phrases with modulation controllers move the
+  probe's level (`bal3`, `MC_6/8 Ballad`). Velocity is no longer judged in those cases, and any of
+  the velocities sharing a level matches.
+- **Fixed:** KD16 (accent started mid-phrase) and KD17 (SFX at the release that ends the arpeggio)
+  were real; both rules are measured now (R17, R18). KD1 for root-fixed table-2 voices (R25).
+- **Measurement limits, not differences:** `syncoff`, `vellim_out`, `vellim_inv`, `q25_pf` and
+  `gate200` fail on the gate of a note ended by a key release, or the onset of a played key passed
+  through, whose time the recorder knows only within an I/O buffer (6–10 ms); `vel0` plays
+  velocity 1, below the analysis floor; the first-batch probes in the low register (`outoct`,
+  `pf1`–`pf3`, `cr`, `bal3`, `soul_*`, `accent_*`, `sfx`) cannot separate neighbouring keys and
+  were re-recorded higher; `oct_idx`, `oct_idx_hi` and `syn_hi` still leave 5–12 short notes
+  unresolved; `pf1_hi`, `pf2_hi`, `pf3_hi`, `q25_pf`, `q50_pf` read 1–4 extra quiet notes on keys
+  no phrase plays (transition artefacts); `sortdirect` cannot tell played keys from arp notes on
+  the same keys; `sfx_nc`, `sfx_seq` and `sfx_off` carry pitch bends and same-key notes with no gap.
+  Accent notes at velocity 127 coinciding with a normal note on the same key read 2 low
+  (`house_acc`, `house_late`, `acc_*`); a 20-tick note in `cycle` reads 2 low.
+- **Random:** `cr`, `cr_hi`, `q50`, `random1` use random tracks (KD13); `random1` plays at the
+  phrase's times and only the held keys.
+- **Not measured:** Change Timing (switching slots needs a scene or Arp Select change the recorder
+  cannot send) and Sync Quantize across parts in the reference: the two-part probe showed KD18
+  instead (both parts' arpeggios start with the first key), so it needs parts on separate MIDI
+  channels or keys, which the recorder plays on one. Down walkers, the octave of absolute template
+  notes under Output Octave, and Fixed SD/BD on a Drum Part.
 
 ## 11. Decisions for Jacob
 
