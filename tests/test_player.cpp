@@ -442,6 +442,7 @@ static std::string manyControllers() {
 }
 
 TEST(processing_never_allocates) {
+    if (!g_allocationCounting) { std::printf("  skipped: allocations cannot be counted in this build\n"); return; }
     auto ph = phrase("track\n  select updown\n  octaves 3\n  keys template+held\n  template 60 c64 a36\n  note 0 p0 v90 g70\n"
                      "  note 90 p1 v80 g200\n  cc 100 1 1\nend\ntrack\n  select style\n  note 0 k64 v100 g30\nend\n"
                      "track\n  accent\n  note 0 p0 v100 g30\nend\n" + manyControllers(), "length 480\nsfx 100 110 1 127 50");

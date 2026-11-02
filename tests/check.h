@@ -10,6 +10,7 @@ std::vector<TestCase>& testCases();
 extern int g_failures;
 extern bool g_countAllocations;
 extern long g_allocations;
+extern const bool g_allocationCounting;
 struct TestRegistrar { TestRegistrar(const char* n, void (*f)()) { testCases().push_back({n, f}); } };
 #define TEST(name) static void name(); static TestRegistrar reg_##name(#name, name); static void name()
 #define CHECK(cond) do { if (!(cond)) { ++g_failures; std::printf("  %s:%d: CHECK(%s) failed\n", __FILE__, __LINE__, #cond); } } while (0)
