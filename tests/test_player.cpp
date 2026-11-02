@@ -2,8 +2,10 @@
 // One test per playback rule, on synthetic phrases. At 120 BPM and 48 kHz one tick (480 per quarter)
 // is exactly 50 frames.
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "check.h"
@@ -498,4 +500,60 @@ TEST(processing_never_allocates) {
     g_countAllocations = false;
     CHECK_EQ(g_allocations, 0);
     CHECK(c.events.size() > 100);
+}
+
+// Keys at times in seconds, rendered at `rate` with a host beat timeline (the free-running beat while
+// stopped, starting at beat 0.3); events as (seconds, type, key, velocity).
+static std::vector<std::tuple<double, int, int, int>> renderAt(double rate, const Phrase& ph, const Settings& s,
+                                                        std::vector<std::tuple<double, int, int>> keys, double seconds) {
+    Player p;
+    p.setPhrase(0, &ph);
+    p.setSettings(s);
+    Collect c;
+    Clock clock;
+    clock.sampleRate = rate;
+    clock.hasBeats = true;
+    const long total = long(seconds * rate);
+    size_t k = 0;
+    for (long pos = 0; pos < total; pos += 100) {
+        const uint32_t n = uint32_t(std::min<long>(100, total - pos));
+        clock.beats = 0.3 + pos * 2.0 / rate;
+        c.base = pos;
+        p.begin(clock, n, c);
+        while (k < keys.size() && std::ceil(std::get<0>(keys[k]) * rate) < pos + n) {
+            const uint32_t f = uint32_t(std::ceil(std::get<0>(keys[k]) * rate) - pos);
+            if (std::get<2>(keys[k])) p.keyOn(f, 0, std::get<1>(keys[k]), std::get<2>(keys[k]), -1);
+            else p.keyOff(f, 0, std::get<1>(keys[k]), -1);
+            ++k;
+        }
+        p.end();
+    }
+    std::vector<std::tuple<double, int, int, int>> out;
+    for (const auto& e : c.events) out.emplace_back(e.frame / rate, e.type, e.key, e.velocity16);
+    return out;
+}
+
+TEST(timing_is_the_same_at_every_sample_rate) {
+    auto ph = phrase(steps("updown", {}, 16, 60) + "track\n  note 37 p0 v70 g333\n  cc 500 1 64\nend\n", "length 1920");
+    Settings s;
+    s.unit = 4;  // 133 %: phrase ticks are not whole frames at any rate
+    s.swing = 30;
+    s.quantizeStrength = 40;
+    s.syncQuantize = 240;
+    s.octaveRange = 1;
+    const std::vector<std::tuple<double, int, int>> keys = {{0.1234, 60, 100}, {0.1234, 64, 90}, {0.1234, 67, 80},
+                                                            {2.7182, 60, 0}, {2.7182, 64, 0}, {2.7182, 67, 0}};
+    const double rates[] = {44100, 48000, 88200, 96000, 192000};
+    const auto ref = renderAt(48000, *ph, s, keys, 4.0);
+    CHECK(ref.size() > 25);
+    for (double rate : rates) {
+        const auto got = renderAt(rate, *ph, s, keys, 4.0);
+        CHECK_EQ(got.size(), ref.size());
+        for (size_t i = 0; i < std::min(got.size(), ref.size()); ++i) {
+            CHECK(std::get<1>(got[i]) == std::get<1>(ref[i]) && std::get<2>(got[i]) == std::get<2>(ref[i]) &&
+                  std::get<3>(got[i]) == std::get<3>(ref[i]));
+            // Each event lands on the first frame at or after its time: within one frame of each rate.
+            CHECK(std::fabs(std::get<0>(got[i]) - std::get<0>(ref[i])) <= 1.0 / rate + 1.0 / 48000 + 1e-9);
+        }
+    }
 }
