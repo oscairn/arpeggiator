@@ -361,8 +361,9 @@ void Player::keyOff(uint32_t frame, int channel, int key, int32_t inputId) {
         --heldCount_;
     }
     detectChord();
-    if (running_ && audible_) playSfx(frame, channel, velocity);
+    const bool sfx = running_ && audible_;
     releaseKeysOff(frame);
+    if (sfx) playSfx(frame, channel, velocity);  // after a stop, so the stop does not cut it
 }
 
 // After a release: with nothing left to play, Hold Off stops and Sync-Off goes silent.

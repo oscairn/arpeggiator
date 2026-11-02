@@ -349,6 +349,10 @@ TEST(random_sfx_plays_at_release_within_its_ranges) {
     CHECK(keys.size() == 2 && keys[1] >= 120 && keys[1] <= 122);
     CHECK(ev.size() >= 3);
     for (const auto& e : ev) if (e.type == ON && e.key >= 120) CHECK(e.value >= 30 && e.value <= 50);
+    // The SFX note lasts its own gate even though the release stopped the arpeggio.
+    long sfxOn = -1, sfxOff = -1;
+    for (const auto& e : ev) if (e.key >= 120) (e.type == ON ? sfxOn : sfxOff) = e.frame;
+    CHECK(sfxOn == 200 * kTick && sfxOff == 300 * kTick);
     s.sfxKeyVelocity = true;
     s.sfxVelocityOffset = 10;
     for (const auto& e : render(*ph, s, {on(0, 60, 90), off(200, 60)}, 480)) if (e.type == ON && e.key >= 120) CHECK_EQ(e.value, 100);
