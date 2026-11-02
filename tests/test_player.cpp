@@ -257,6 +257,15 @@ TEST(octave_range_climbs_each_pass_and_widens_walkers) {
     CHECK(onKeys(render(*up, s, {on(0, 60), on(0, 64)}, 480)) == v({60, 64, 72, 76}));
 }
 
+TEST(walker_span_has_no_ceiling_beyond_the_parameters) {
+    std::string body = "track\n  select up\n  octaves 4\n";
+    for (int i = 0; i < 7; ++i) body += "  note " + std::to_string(i * 60) + " p0 v100 g10\n";
+    auto ph = phrase(body + "end\n", "length 480");
+    Settings s;
+    s.octaveRange = 3;  // four walked octaves plus three: seven octaves from key 24
+    CHECK(onKeys(render(*ph, s, {on(0, 24)}, 420)) == v({24, 36, 48, 60, 72, 84, 96}));
+}
+
 TEST(output_octave_moves_chord_notes_but_not_absolute_template_notes) {
     auto ph = phrase("track\n  keys template+held\n  template 60 a36\n  note 0 p0 v100 g60\n  note 120 p1 v100 g60\nend\n", "length 240");
     Settings s;

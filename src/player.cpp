@@ -519,8 +519,9 @@ void Player::playEvent(int ti, const Event& e, double clockTick, uint32_t frame)
         default: {
             // Walkers: positions are ignored; they step through the list over their octave span.
             const int r = 12 * settings_.octaveRange, limit = 12 * (t.octaves - 1);
-            int lower = 0, upper = std::min(limit + r, 36);
-            if (r < 0) { lower = r; upper = limit - r > 36 ? r + 36 : limit; }
+            // No ceiling on the span beyond the parameter ranges (notes still fold into 0..127).
+            int lower = 0, upper = limit + r;
+            if (r < 0) { lower = r; upper = limit; }
             Walk& w = walk_[ti];
             if (!w.started) { w = Walk{}; w.octave = lower; w.started = true; }
             w.octave = clampi(w.octave, lower, std::max(lower, upper));
