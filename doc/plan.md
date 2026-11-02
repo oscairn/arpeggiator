@@ -213,8 +213,10 @@ the full Octave Range, and only the MIDI key range (0–127, folded by octaves) 
 `performance-converter` (MIT, published) maps each Part's arp block to these parameters (value
 tables in phrase-format.md, "Converter notes") and each `Arp n Number` to a phrase file. Arp file
 reading is plain format reading (chunked file, config fields, events) and belongs in the converter;
-nothing needs the instrument plugin's code or tables at run time. The extractor used for this plan
-lives outside the repository and is described to the converter's owner.
+nothing needs the instrument plugin's code or tables at run time. That reading is
+`perfconv/arp.py` in `performance-converter`, which also places the arpeggiator first in each
+converted Part with its settings, folds the Performance-level values into each Part and carries
+the phrases as library assets.
 
 ## 5. Converting the instrument's arpeggios
 
@@ -227,8 +229,8 @@ mapping to the phrase format is one to one except: style tracks' transposition t
 approximated (R25), a key-count remapping field that no factory file uses is reported, and a rare
 4-byte controller record (18 factory files) is reported and skipped.
 
-Output goes to `~/Projects/Open Synth Platform/converted/arps/` (never committed): `factory/NNNNN.ophr`,
-`user/<id>.ophr`, `index.json`, `report.json`.
+The converter writes the phrases a conversion uses into its library (never committed): embedded in
+each arpeggiator's state and as assets under `Assets/` in the archive, referenced by the node.
 
 ## 6. Measuring against the reference
 
@@ -308,12 +310,12 @@ reproduce, where in the code. Entries are added as measurements find them and re
 | KD2 | A chord change while style notes sound does not re-pitch or stop them (the `rule … RETRIGGER` field is read but unused) | Style tracks only | Not implemented | Unresolved | Change the chord mid-note on a style phrase | `Player::playStyle` |
 | KD3 | Chord recognition (for chord filters and style tracks) uses the plugin's own interval table; unusual voicings may be named differently | Chord filters with partial masks, style tracks | Own design | Unresolved, to measure | Hold an unusual voicing on a style phrase | `Player::detectChord` |
 | KD4 | Walkers have no octave ceiling: octaves plus the full Octave Range are walked | Walker tracks with many octaves and a large positive Octave Range; the reference may limit the span (to measure) | Jacob's rule: no limit beyond parameter ranges | Deliberate | `octaves 4` phrase with Octave Range +3 | `Player::playEvent`, walker branch |
-| KD5 | A key-count remapping field in the instrument's arp files (unused by every factory file) has no equivalent | None in factory content | No data uses it | Deliberate | The extractor's report lists any file that sets it | extractor (outside this repo) |
+| KD5 | A key-count remapping field in the instrument's arp files (unused by every factory file) has no equivalent | None in factory content | No data uses it | Deliberate | The converter's report lists any file that sets it | `performance-converter`, `perfconv/arp.py` |
 | KD6 | Sync Quantize with the transport stopped aligns to the instance's own clock, not a shared grid | Parts started together on a stopped transport may differ by up to one grid step | No shared beat while stopped (RFC 0032 step 3) | Deliberate until the host adds the beat | Two instances activated at different times, transport stopped, Sync Quantize 480 | `Player::startPhrase` |
 | KD9 | Pushed phrases take over a block after the main thread parses them, not at the event's sample | All pushes | Parsing must not run unbounded on the audio thread | Deliberate | `tests/test_plugin.cpp`, push case | `Plugin::sysex`, `Plugin::mainThread` |
 | KD10 | SysEx other than the push message is dropped, not passed on | Any SysEx on the note input | Keeps private messages inside the plugin | Deliberate | Send any SysEx through | `Plugin::sysex` |
-| KD11 | Literal-note and fallback events of user arps recorded on the instrument are not converted | User arps made with the instrument's recording (none in Jacob's set) | No sample files to verify their layout | Unresolved | Convert such a file; the report names it | extractor |
-| KD12 | A 4-byte controller record in 18 factory arps is skipped | Those 18 phrases | Meaning unknown | Unresolved | Extractor report | extractor |
+| KD11 | Literal-note and fallback events of user arps recorded on the instrument are not converted | User arps made with the instrument's recording (none in Jacob's set) | No sample files to verify their layout | Unresolved | Convert such a file; the report names it | `perfconv/arp.py` |
+| KD12 | A 4-byte controller record in 18 factory arps is skipped | Those 18 phrases | Meaning unknown | Unresolved | Converter report (`event B2 skipped`) | `perfconv/arp.py` |
 | KD13 | Random walkers and random phrases play a different random sequence | Every `random` track (`cr`, `cr_hi`, `q50`); timing matches, keys cannot | The plugin's own seeded generator, so renders repeat exactly | Deliberate | `cr_hi` probe | `Player::nextRandom` |
 | KD14 | A note on the same key starting about 10 ticks after another ends sounds, in the reference, as one long quieter note | `MA_Pf Arp1` with one held key, at 2.57 s of `pf1_hi` (also `pf2_hi`, `pf3_hi`) | Unknown | Unresolved | `pf1_hi` probe | `Player::noteOn` (same-key handling) |
 | KD15 | Notes that overlap other notes read 2–4 velocity steps away from the engine's, while isolated notes agree within ±1 | `swing`, `gate200`, chords in `bal3_hi`, `syn_hi`, `house_acc` | Unknown: the arp's velocity, or how the probe sound mixes voices | Unresolved | Those probes | `Player::sendNote` |
@@ -323,7 +325,9 @@ reproduce, where in the code. Entries are added as measurements find them and re
 ## 10. Measurement results
 
 Recorded 2026-11-01 (batches `b3`–`b5` under `forks/measurements/arp/`, not in this repository) with
-the probe described in section 6 and compared with `arp-render` on the converted phrases. Each
+the probe described in section 6 and compared with `arp-render` on the converted phrases (analysis:
+`oscairn/measurement`, `arp/compare.py`; the table's Merged column was always 0 through a counting
+bug, fixed there: `cr_hi` merges 10 notes, `q50` 27, the others none). Each
 render is aligned per phrase start (median offset), since the recorder places key events only within
 an I/O buffer. Velocity uses a calibration sweep (velocities 3–121 resolvable; 1 and 2 are below the noise
 floor; 122–123 read the same, as do 124–127).
