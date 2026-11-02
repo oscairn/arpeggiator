@@ -179,6 +179,7 @@ private:
     int accent_ = 0;             // 0 none, 1 waiting to start, 2 playing
     double accentAt_ = 0;        // clock tick the accent pass starts
     double accentPos_ = 0;       // accent position still to play
+    double muteUntil_ = -1;      // an accent started mid-phrase: normal-track notes before this clock tick stay silent
     Walk walk_[kMaxTracks];
     uint32_t random_ = 0x2545F491u;
 

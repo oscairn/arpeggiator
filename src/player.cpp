@@ -253,6 +253,7 @@ void Player::startPhrase(uint32_t frame) {
     running_ = audible_ = true;
     octaveStep_ = 0;
     accent_ = 0;
+    muteUntil_ = -1;
     nextPos_ = 0;
     for (auto& w : walk_) w = Walk{};
     startAt_ = -1;
@@ -284,6 +285,7 @@ void Player::stopArp(uint32_t frame) {
     running_ = audible_ = false;
     startAt_ = -1;
     accent_ = 0;
+    muteUntil_ = -1;
     for (int i = 0; i < kMaxSounding; ++i)
         if (sounding_[i].used && !sounding_[i].passThrough) noteOffAt(frame, i);
 }
@@ -358,6 +360,10 @@ void Player::keyOn(uint32_t frame, int channel, int key, int velocity, int32_t i
         }
         accent_ = 1;
         accentAt_ = std::max(at, startAt_ >= 0 ? startAt_ : at);
+        // Started after the phrase: the normal tracks' notes in the accent's first quarter note stay
+        // silent (measured at four starting points: dropped up to 288 ticks after it, kept from 485;
+        // one quarter is the fitted window). An accent starting with the phrase mutes nothing.
+        muteUntil_ = gestureStart && !resume ? -1 : accentAt_ + phrase_->ppq;
         accentPos_ = 0;
     }
 }
@@ -739,6 +745,7 @@ void Player::advanceTo(uint32_t frame) {
             case 2: accent_ = 2; accentPos_ = 0; break;
             case 3:
             case 5: {
+                if (kind == 3 && muteUntil_ >= 0 && next >= muteUntil_) muteUntil_ = -1;
                 const Sched* s = kind == 3 ? sched_ : accentSched_;
                 const int count = kind == 3 ? schedCount_ : accentCount_;
                 const double tick = s[which].tick;
@@ -748,6 +755,7 @@ void Player::advanceTo(uint32_t frame) {
                 int style[64], styleCount = 0;
                 for (int i = which; i < count && s[i].tick == tick; ++i) {
                     const Event& ev = phrase_->events[s[i].event];
+                    if (kind == 3 && muteUntil_ >= 0 && next >= accentAt_ && ev.type == EventType::Note) continue;
                     if (phrase_->tracks[s[i].track].select == Select::Style && ev.type == EventType::Note && styleCount < 64)
                         style[styleCount++] = i;
                     else playEvent(s[i].track, ev, next, f);

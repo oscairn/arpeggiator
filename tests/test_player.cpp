@@ -570,3 +570,15 @@ TEST(root_fixed_style_voices_move_together_to_the_held_chord) {
     CHECK(voiced({on(0, 62), on(0, 65), on(0, 69), on(0, 72)}) == v({57, 60, 65, 69}));
     CHECK(voiced({on(0, 55), on(0, 59), on(0, 62), on(0, 65)}) == v({53, 59, 62, 65}));
 }
+
+TEST(an_accent_started_mid_phrase_silences_normal_notes_for_a_quarter) {
+    // Measured (MA_House 14): normal-track notes in the accent's first quarter note are left out when the
+    // accent starts after the phrase; one starting with the phrase leaves them in.
+    auto ph = phrase("track\n  note 0 k40 v100 g10\n  note 600 k41 v100 g10\n  note 840 k42 v100 g10\n  note 1200 k43 v100 g10\nend\n"
+                     "track\n  accent\n  note 0 k90 v100 g10\nend\n", "length 1920");
+    Settings s;
+    s.accentThreshold = 100;
+    s.accentQuantize = false;
+    CHECK(onKeys(render(*ph, s, {on(0, 60, 80), on(500, 64, 110)}, 1900)) == v({40, 90, 43}));  // 41 and 42 fall in 500..980
+    CHECK(onKeys(render(*ph, s, {on(0, 60, 110)}, 1900)) == v({90, 40, 41, 42, 43}));
+}
