@@ -326,8 +326,7 @@ TEST(note_and_velocity_limits_with_inverted_ranges) {
     s.noteLow = 72;  // above high: arp below 60 and above 72
     s.noteHigh = 59;
     const auto ev = render(*ph, s, {on(0, 65)}, 480);
-    CHECK(ev.size() >= 1 && ev[0].inputId == 0);  // passed through, no arp note
-    CHECK(onKeys(ev).empty());
+    CHECK(ev.empty());  // outside the limits: neither arpeggiated nor passed through
     CHECK(onKeys(render(*ph, s, {on(0, 50)}, 480)) == v({50}));
     Settings vs;
     vs.velocityLow = 90;
