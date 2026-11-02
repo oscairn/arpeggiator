@@ -4,6 +4,7 @@
 // phrase reaches the audio thread through a per-slot pending pointer; the replaced one comes back
 // through a per-slot retired pointer and is freed on the main thread.
 #include <clap/clap.h>
+#include <oscairn-clap/assets.h>
 #include <oscairn-clap/beat.h>
 
 #include <algorithm>
@@ -135,6 +136,7 @@ struct Plugin {
     std::atomic<arp::Phrase*> pending[arp::kSlots] = {};
     std::atomic<arp::Phrase*> retired[arp::kSlots] = {};
     std::string text[arp::kSlots];  // main thread: the text form of each slot's phrase
+    oscairn_asset_ref_t ref[arp::kSlots] = {};  // main thread: the library asset each slot came from (empty library: none)
     // A phrase pushed in on the note input waits here for the main thread to parse it.
     std::unique_ptr<uint8_t[]> inbox{new uint8_t[kInboxSize]};
     std::atomic<size_t> inboxSize{0};  // nonzero: full, owned by the main thread until cleared
@@ -255,17 +257,46 @@ struct Plugin {
             return false;
         }
         text[slot].assign(data, size);
+        ref[slot] = {};  // a new phrase no longer is the asset
         delete pending[slot].exchange(ph.release());
         return true;
     }
 
     void clearSlot(int slot) {
         text[slot].clear();
+        ref[slot] = {};
         delete pending[slot].exchange(nullptr);
         // An empty phrase (no tracks) stands for "none"; the audio thread swaps it in like any other.
         auto ph = new arp::Phrase();
         ph->trackCount = 0;
         pending[slot].store(ph);
+    }
+
+    // Main thread: the host finds a slot's asset and it replaces the embedded copy; when it cannot, the
+    // embedded copy plays on (the asset is optional). The reference is kept either way, for the next save.
+    void useAsset(int slot, oscairn_asset_ref_t r) {
+        const auto* assets = host && host->get_extension
+            ? static_cast<const oscairn_host_assets_t*>(host->get_extension(host, OSCAIRN_EXT_ASSETS)) : nullptr;
+        char path[4096], msg[512] = "the host has no asset store";
+        std::string data;
+        if (assets && assets->resolve && assets->resolve(host, &r, path, sizeof path, msg, sizeof msg)) {
+            if (readFile(path, data) && install(slot, data.data(), data.size())) { ref[slot] = r; return; }
+            std::snprintf(msg, sizeof msg, "%s does not load", path);
+        }
+        char line[1600];
+        std::snprintf(line, sizeof line, "slot %d: phrase %s unavailable (%s); playing the copy in the state", slot + 1, r.path, msg);
+        log(CLAP_LOG_WARNING, line);
+        ref[slot] = r;
+    }
+
+    static bool readFile(const char* location, std::string& data) {
+        FILE* f = std::fopen(location, "rb");
+        if (!f) return false;
+        char buf[4096];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof buf, f)) > 0 && data.size() < (16u << 20)) data.append(buf, n);
+        std::fclose(f);
+        return true;
     }
 
     void log(clap_log_severity sev, const char* msg) const {
@@ -488,6 +519,7 @@ struct Plugin {
             out += line;
         }
         for (int sl = 0; sl < arp::kSlots; ++sl) {
+            if (ref[sl].library[0]) out += "asset " + std::to_string(sl) + " " + ref[sl].library + " " + (ref[sl].sha256[0] ? ref[sl].sha256 : "-") + " " + ref[sl].path + "\n";
             if (text[sl].empty()) continue;
             std::snprintf(line, sizeof line, "slot %d %zu\n", sl, text[sl].size());
             out += line;
@@ -516,6 +548,7 @@ struct Plugin {
         if (in.compare(0, 22, "oscairn-arpeggiator 1\n")) return false;
         size_t pos = 22;
         bool seen[arp::kSlots] = {};
+        oscairn_asset_ref_t refs[arp::kSlots] = {};
         while (pos < in.size()) {
             const size_t eol = in.find('\n', pos);
             if (eol == std::string::npos) return false;
@@ -528,9 +561,23 @@ struct Plugin {
                 if (!install(slot, in.data() + pos, len)) return false;
                 seen[slot] = true;
                 pos += len + 1;
+            } else if (!line.compare(0, 6, "asset ")) {
+                char library[64], sha[65];
+                int at = 0;
+                if (std::sscanf(line.c_str(), "asset %d %63s %64s %n", &slot, library, sha, &at) != 3 || !at || slot < 0 || slot >= arp::kSlots ||
+                    line.size() - size_t(at) >= sizeof refs[slot].path || (std::strcmp(sha, "-") && std::strlen(sha) != 64)) return false;
+                auto& r = refs[slot];
+                r = {};
+                std::snprintf(r.library, sizeof r.library, "%s", library);
+                std::snprintf(r.sha256, sizeof r.sha256, "%s", std::strcmp(sha, "-") ? sha : "");
+                std::snprintf(r.path, sizeof r.path, "%s", line.c_str() + at);
             } else if (!line.empty()) return false;
         }
-        for (int sl = 0; sl < arp::kSlots; ++sl) if (!seen[sl] && !text[sl].empty()) clearSlot(sl);
+        for (int sl = 0; sl < arp::kSlots; ++sl) {
+            if (!seen[sl] && !text[sl].empty()) clearSlot(sl);
+            ref[sl] = {};
+            if (refs[sl].library[0]) useAsset(sl, refs[sl]);
+        }
         return true;
     }
 
@@ -608,16 +655,35 @@ const clap_plugin_state_t kState = {
 const clap_plugin_preset_load_t kPresetLoad = {
     [](const clap_plugin_t* pl, uint32_t kind, const char* location, const char*) {
         auto& p = Plugin::of(pl);
-        if (kind != CLAP_PRESET_DISCOVERY_LOCATION_FILE || !location) return false;
-        FILE* f = std::fopen(location, "rb");
-        if (!f) return false;
         std::string data;
-        char buf[4096];
-        size_t n;
-        while ((n = std::fread(buf, 1, sizeof buf, f)) > 0 && data.size() < (16u << 20)) data.append(buf, n);
-        std::fclose(f);
+        if (kind != CLAP_PRESET_DISCOVERY_LOCATION_FILE || !location || !Plugin::readFile(location, data)) return false;
         return p.install(std::clamp(p.ival(pSlot), 0, 7), data.data(), data.size());
     }};
+
+// Each slot's library asset, declared optional: the state embeds the phrase, so a host loads the plugin
+// with the asset missing and the embedded copy plays (oscairn.asset-dependencies draft 2).
+int assetSlot(const Plugin& p, uint32_t index) {
+    for (int sl = 0; sl < arp::kSlots; ++sl) {
+        if (!p.ref[sl].library[0]) continue;
+        bool repeat = false;  // slots sharing one asset list it once
+        for (int e = 0; e < sl && !repeat; ++e) repeat = !std::memcmp(&p.ref[e], &p.ref[sl], sizeof p.ref[sl]);
+        if (!repeat && index-- == 0) return sl;
+    }
+    return -1;
+}
+const oscairn_plugin_asset_dependencies_t kAssetDependencies = {
+    [](const clap_plugin_t* pl) {
+        uint32_t n = 0;
+        while (assetSlot(Plugin::of(pl), n) >= 0) ++n;
+        return n;
+    },
+    [](const clap_plugin_t* pl, uint32_t index, oscairn_asset_ref_t* r) {
+        const int sl = assetSlot(Plugin::of(pl), index);
+        if (sl < 0 || !r) return false;
+        *r = Plugin::of(pl).ref[sl];
+        return true;
+    },
+    [](const clap_plugin_t* pl, uint32_t index) { return assetSlot(Plugin::of(pl), index) >= 0; }};
 
 const void* Plugin::extension(const char* id) {
     if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &kAudioPorts;
@@ -625,6 +691,7 @@ const void* Plugin::extension(const char* id) {
     if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &kParams;
     if (!std::strcmp(id, CLAP_EXT_STATE)) return &kState;
     if (!std::strcmp(id, CLAP_EXT_PRESET_LOAD)) return &kPresetLoad;
+    if (!std::strcmp(id, OSCAIRN_EXT_ASSET_DEPENDENCIES)) return &kAssetDependencies;
     return nullptr;
 }
 

@@ -120,10 +120,24 @@ The CLAP state is text:
 ```
 oscairn-arpeggiator 1
 param ID VALUE        # one line per parameter
+asset N LIBRARY SHA256 PATH   # optional: the library asset slot N's phrase came from
 slot N BYTES          # then exactly BYTES bytes of phrase text and a newline
 ```
 
-Slots without a `slot` entry are empty. Parameter IDs are listed in `src/plugin.cpp`
+Slots without a `slot` entry are empty.
+
+An `asset` line names the Oscairn library asset (RFC 0009) a slot's phrase is a copy of: N is the
+slot (0–7), LIBRARY the library ID (`user` for the user library; no spaces, up to 63 bytes),
+SHA256 the file's 64 lowercase hex digits or `-` when not known, and PATH the rest of the line
+after one space: the path in the library, which may contain spaces (up to 1023 bytes). Example:
+`asset 0 user 68dcea002e7236558e1afcb3655e0a55f65ee550063d92cf14a380778348bf19 68dcea002e723655/MA_SynArp21.ophr`.
+The plugin declares each slot's asset to the host as optional (`oscairn.asset-dependencies/draft-2`;
+slots sharing one asset list it once). On loading the state it asks the host for the file
+(`oscairn.assets`): found, the file's phrase is installed in the slot (and an unknown hash is
+filled in); missing, the slot plays the phrase embedded in the state and the host is told
+through its log. The line is kept on save either way. A phrase loaded, pushed or recorded into
+a slot replaces it and drops its `asset` line. A state with an `asset` line but no `slot` text
+for that slot plays nothing there when the asset is missing. Parameter IDs are listed in `src/plugin.cpp`
 (1 Switch … 28 Slot, 29–36 slot velocity offsets, 37–44 slot gate offsets, 45 Record,
 46 Record Bars, 47 Record Convert) and never change.
 

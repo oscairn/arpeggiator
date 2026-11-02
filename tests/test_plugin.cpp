@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 // Loads the built plugin and checks it as a host would: descriptor and ports, parameters, notes in and
-// out at any block size, state round trip with phrases, phrases pushed on the note input, and main-thread
-// calls running while another thread processes (for ThreadSanitizer).
+// out at any block size, state round trip with phrases, phrase assets (found, or missing with the embedded
+// copy playing), phrases pushed on the note input, and main-thread calls running while another thread
+// processes (for ThreadSanitizer).
 #include <clap/clap.h>
 #include <dlfcn.h>
+#include <oscairn-clap/assets.h>
 #include <oscairn-clap/beat.h>
 
 #include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -34,6 +37,18 @@ const clap_host_event_registry_t kRegistry = {[](const clap_host_t*, const char*
 const clap_host_t kBeatHost = {CLAP_VERSION, nullptr, "test", "oscairn", "", "1",
                                [](const clap_host_t*, const char* id) -> const void* { return std::strcmp(id, CLAP_EXT_EVENT_REGISTRY) ? nullptr : &kRegistry; },
                                [](const clap_host_t*) {}, [](const clap_host_t*) {}, [](const clap_host_t*) { ++callbacks; }};
+
+// A host with an asset store (oscairn.assets) holding one file, assetFile; empty: nothing resolves.
+std::string assetFile;
+const oscairn_host_assets_t kAssets = {[](const clap_host_t*, oscairn_asset_ref_t* ref, char* path, uint32_t cap, char* msg, uint32_t msgCap) {
+    if (assetFile.empty()) return std::snprintf(msg, msgCap, "%s not found", ref->path), false;
+    std::snprintf(path, cap, "%s", assetFile.c_str());
+    if (!ref->sha256[0]) std::memset(ref->sha256, 'a', 64);  // the host fills in an unknown hash
+    return true;
+}};
+const clap_host_t kAssetHost = {CLAP_VERSION, nullptr, "test", "oscairn", "", "1",
+                                [](const clap_host_t*, const char* id) -> const void* { return std::strcmp(id, OSCAIRN_EXT_ASSETS) ? nullptr : &kAssets; },
+                                [](const clap_host_t*) {}, [](const clap_host_t*) {}, [](const clap_host_t*) { ++callbacks; }};
 
 struct InEvents {
     std::vector<std::vector<uint8_t>> events;
@@ -253,6 +268,44 @@ int main(int argc, char** argv) {
         CHECK(!load(b, "nonsense"));
         CHECK(!load(b, stateWith("oscairn-phrase 1\ntrack\n  note 0 q1 v1 g1\nend\n")));
         CHECK(!load(b, "oscairn-arpeggiator 1\nslot 0 99999\nshort"));
+    }
+
+    {  // a slot's phrase asset: declared optional; missing, the embedded copy plays; found, it replaces the copy
+        const std::string sha(64, 'c');
+        const std::string withAsset = "oscairn-arpeggiator 1\nasset 0 user " + sha + " 0123/My Up.ophr\n" + stateWith(kUp).substr(22);
+        auto play = [](Instance& in) {
+            in.p->on_main_thread(in.p);
+            OutEvents out;
+            in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(0, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2))}, 24000, 256);
+            return ons(out);
+        };
+        Instance in(factory, &kAssetHost);
+        assetFile.clear();
+        CHECK(load(in, withAsset));
+        CHECK(play(in) == std::vector<int>({60, 64, 60, 64}));  // missing: the embedded "up"
+        auto* deps = static_cast<const oscairn_plugin_asset_dependencies_t*>(in.p->get_extension(in.p, OSCAIRN_EXT_ASSET_DEPENDENCIES));
+        CHECK(deps && deps->count(in.p) == 1 && deps->optional && deps->optional(in.p, 0) && !deps->optional(in.p, 1));
+        oscairn_asset_ref_t r{};
+        CHECK(deps && deps->get(in.p, 0, &r) && !std::strcmp(r.library, "user") && !std::strcmp(r.path, "0123/My Up.ophr") && r.sha256 == sha);
+        Stream st;
+        CHECK(in.state->save(in.p, &st.out) && st.data.find("asset 0 user " + sha + " 0123/My Up.ophr\n") != std::string::npos);
+
+        // Found: the asset file plays ("down"), and a hash the state did not give is filled in.
+        assetFile = std::string(argv[1]) + ".test-asset.ophr";
+        std::ofstream(assetFile) << "oscairn-phrase 1\nlength 480\ntrack\n  select down\n  note 0 p0 v100 g60\n  note 120 p0 v100 g60\n"
+                                    "  note 240 p0 v100 g60\n  note 360 p0 v100 g60\nend\n";
+        Instance found(factory, &kAssetHost);
+        CHECK(load(found, "oscairn-arpeggiator 1\nasset 0 user - x/Down.ophr\nasset 1 user - x/Down.ophr\n" + stateWith(kUp).substr(22)));
+        CHECK(play(found) == std::vector<int>({64, 60, 64, 60}));
+        Stream st2;
+        CHECK(found.state->save(found.p, &st2.out) && st2.data.find("asset 0 user " + std::string(64, 'a') + " x/Down.ophr\n") != std::string::npos);
+        CHECK(deps && deps->count(found.p) == 1);  // two slots, one asset
+        std::remove(assetFile.c_str());
+        assetFile.clear();
+
+        // A state without the line, or a phrase loaded over the slot, leaves no asset.
+        CHECK(load(found, stateWith(kUp)) && deps && deps->count(found.p) == 0);
+        CHECK(!load(found, "oscairn-arpeggiator 1\nasset 0 user short x.ophr\n"));
     }
 
     {  // the transport stopping ends what sounds
