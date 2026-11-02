@@ -304,7 +304,7 @@ reproduce, where in the code. Entries are added as measurements find them and re
 
 | # | What | Size and where | Cause | Status | Reproduce | Code |
 | --- | --- | --- | --- | --- | --- | --- |
-| KD1 | Style tracks (R25) transpose source pitches by root plus chord-tone rules, not the reference's transposition tables | Any style track on chords other than its source chord; size unmeasured | Tables unknown; to be measured | Unresolved | `arp-render` a converted style phrase (for example `MA_Soul 1 _C`) on Dm7 and compare with the reference render | `Player::playStyle` |
+| KD1 | Style tracks (R25) transpose source pitches by root plus chord-tone rules, not the reference's transposition tables | Style tracks on chords other than their source chord: `MA_Soul 1 _C` matches on C (`soul_c2`) but differs on Dm7 (27 of 36 notes, 9 missing) and G7 (all 36: the reference moves the voices G C E G down to F B D F) | Tables unknown; to be measured | Unresolved | `arp-render` a converted style phrase (for example `MA_Soul 1 _C`) on Dm7 and compare with the reference render | `Player::playStyle` |
 | KD2 | A chord change while style notes sound does not re-pitch or stop them (the `rule … RETRIGGER` field is read but unused) | Style tracks only | Not implemented | Unresolved | Change the chord mid-note on a style phrase | `Player::playStyle` |
 | KD3 | Chord recognition (for chord filters and style tracks) uses the plugin's own interval table; unusual voicings may be named differently | Chord filters with partial masks, style tracks | Own design | Unresolved, to measure | Hold an unusual voicing on a style phrase | `Player::detectChord` |
 | KD4 | Walkers have no octave ceiling: octaves plus the full Octave Range are walked | Walker tracks with many octaves and a large positive Octave Range; the reference may limit the span (to measure) | Jacob's rule: no limit beyond parameter ranges | Deliberate | `octaves 4` phrase with Octave Range +3 | `Player::playEvent`, walker branch |
@@ -314,8 +314,91 @@ reproduce, where in the code. Entries are added as measurements find them and re
 | KD10 | SysEx other than the push message is dropped, not passed on | Any SysEx on the note input | Keeps private messages inside the plugin | Deliberate | Send any SysEx through | `Plugin::sysex` |
 | KD11 | Literal-note and fallback events of user arps recorded on the instrument are not converted | User arps made with the instrument's recording (none in Jacob's set) | No sample files to verify their layout | Unresolved | Convert such a file; the report names it | extractor |
 | KD12 | A 4-byte controller record in 18 factory arps is skipped | Those 18 phrases | Meaning unknown | Unresolved | Extractor report | extractor |
+| KD13 | Random walkers and random phrases play a different random sequence | Every `random` track (`cr`, `cr_hi`, `q50`); timing matches, keys cannot | The plugin's own seeded generator, so renders repeat exactly | Deliberate | `cr_hi` probe | `Player::nextRandom` |
+| KD14 | A note on the same key starting about 10 ticks after another ends sounds, in the reference, as one long quieter note | `MA_Pf Arp1` with one held key, at 2.57 s of `pf1_hi` (also `pf2_hi`, `pf3_hi`) | Unknown | Unresolved | `pf1_hi` probe | `Player::noteOn` (same-key handling) |
+| KD15 | Notes that overlap other notes read 2–4 velocity steps away from the engine's, while isolated notes agree within ±1 | `swing`, `gate200`, chords in `bal3_hi`, `syn_hi`, `house_acc` | Unknown: the arp's velocity, or how the probe sound mixes voices | Unresolved | Those probes | `Player::sendNote` |
+| KD16 | An accent started mid-phrase: the engine plays one normal-track note the reference leaves out | `house_late` at 2.03 s | Accent start rule not yet known | Unresolved | `house_late` probe | `Player::keyOn` (accent), `Player::advanceTo` |
+| KD17 | Random SFX: in the New Country probe the reference played no SFX note at the releases where the engine plays one | `sfx_nc` | Unknown (conditions for SFX) | Unresolved | `sfx_nc` probe | `Player::playSfx` |
 
-## 10. Decisions for Jacob
+## 10. Measurement results
+
+Recorded 2026-11-01 (batches `b3`–`b5` under `forks/measurements/arp/`, not in this repository) with
+the probe described in section 6 and compared with `arp-render` on the converted phrases. Each
+render is aligned per phrase start (median offset), since the recorder places key events only within
+an I/O buffer. Velocity uses a calibration sweep (velocities 3–121 resolvable; 1 and 2 are below the noise
+floor; 122–123 read the same, as do 124–127).
+
+| Probe | Ref notes | Engine notes | Merged (unresolvable) | Unmatched | Onset max (ms) | Velocity max | Gate max (ms) | Gate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| oct_walk | 32 | 32 | 0 | 0 | 0.74 | 0 | 1.16 | pass |
+| oct_idx | 114 | 126 | 0 | 12 | 3.04 | 2 | 4.97 | fail |
+| unit200 | 16 | 16 | 0 | 0 | 0.73 | 0 | 0.42 | pass |
+| unit66 | 36 | 36 | 0 | 0 | 0.7 | 0 | 0.95 | pass |
+| swing | 24 | 24 | 0 | 0 | 1.03 | 2 | 2.44 | fail |
+| thru | 24 | 24 | 0 | 0 | 0.69 | 0 | 1.16 | pass |
+| outoct | 16 | 24 | 0 | 40 | — | — | — | fail |
+| holdon | 36 | 36 | 0 | 0 | 0.73 | 0 | 1.16 | pass |
+| syncoff | 26 | 26 | 0 | 0 | 0.71 | 0 | 9.65 | fail |
+| toggle | 20 | 20 | 0 | 0 | 0.71 | 0 | 1.16 | pass |
+| loopoff | 16 | 16 | 0 | 0 | 0.72 | 0 | 1.16 | pass |
+| notelim | 24 | 24 | 0 | 0 | 0.73 | 0 | 1.12 | pass |
+| vel0 | 0 | 16 | — | — | — | — | — | fail |
+| gate200 | 16 | 16 | 0 | 0 | 0.98 | 2 | 9.54 | fail |
+| accent_hi | 25 | 61 | 0 | 36 | 1.0 | 1 | 1.62 | fail |
+| accent_lo | 27 | 61 | 0 | 80 | 0.65 | 0 | 1.38 | fail |
+| sfx | 6 | 20 | 0 | 26 | — | — | — | fail |
+| soul_c | 4 | 36 | 0 | 40 | — | — | — | fail |
+| soul_dm7 | 4 | 27 | 0 | 31 | — | — | — | fail |
+| rnb3 | 40 | 40 | 0 | 0 | 0.68 | 1 | 1.76 | pass |
+| pf2 | 24 | 41 | 0 | 65 | — | — | — | fail |
+| up | 32 | 32 | 0 | 0 | 0.69 | 0 | 1.16 | pass |
+| up_b | 32 | 32 | 0 | 0 | 0.76 | 0 | 1.16 | pass |
+| udb | 32 | 32 | 0 | 0 | 0.77 | 0 | 1.23 | pass |
+| up2 | 32 | 32 | 0 | 0 | 0.72 | 0 | 1.22 | pass |
+| pf1 | 25 | 32 | 0 | 21 | 4.03 | 21 | 132.59 | fail |
+| pf3 | 33 | 44 | 0 | 75 | 0.0 | 15 | 239.1 | fail |
+| cr | 77 | 86 | 0 | 105 | 14.02 | 21 | 472.05 | fail |
+| bal3 | 14 | 13 | 0 | 1 | 2.33 | 4 | 11.08 | fail |
+| uprate | 24 | 24 | 0 | 0 | 0.74 | 0 | 2.26 | pass |
+| upthru | 24 | 24 | 0 | 0 | 0.74 | 1 | 1.16 | pass |
+| uprel | 15 | 15 | 0 | 0 | 0.68 | 0 | 3.26 | pass |
+| outoct_hi | 24 | 24 | 0 | 0 | 0.72 | 0 | 1.16 | pass |
+| pf1_hi | 33 | 32 | 0 | 3 | 6.06 | 25 | 1771.94 | fail |
+| pf3_hi | 43 | 44 | 0 | 5 | 6.17 | 27 | 1506.1 | fail |
+| pf2_hi | 39 | 41 | 0 | 6 | 5.02 | 25 | 1503.4 | fail |
+| cr_hi | 67 | 86 | 0 | 77 | 1.57 | 35 | 359.58 | fail |
+| bal3_hi | 13 | 13 | 0 | 0 | 1.4 | 4 | 3.91 | fail |
+| syn_hi | 77 | 84 | 0 | 7 | 2.97 | 2 | 4.15 | fail |
+| oct_idx_hi | 111 | 126 | 0 | 15 | 3.39 | 2 | 4.74 | fail |
+| vellim_out | 3 | 3 | 0 | 0 | 0.39 | 0 | 6.1 | fail |
+| vellim_in | 16 | 16 | 0 | 0 | 0.74 | 0 | 1.16 | pass |
+| swing_only | 24 | 24 | 0 | 0 | 0.93 | 2 | 3.34 | fail |
+| q50 | 61 | 69 | 0 | 78 | 10.61 | 47 | 64.11 | fail |
+| up_2keys | 16 | 16 | 0 | 0 | 0.71 | 0 | 1.14 | pass |
+| syncq | 24 | 24 | 0 | 0 | 0.71 | 0 | 1.16 | pass |
+| house_acc | 17 | 17 | 0 | 0 | 0.61 | 2 | 2.28 | fail |
+| house_noacc | 17 | 17 | 0 | 0 | 0.73 | 1 | 1.65 | pass |
+| house_late | 21 | 22 | 0 | 1 | 0.79 | 2 | 1.65 | fail |
+| sfx_nc | 3 | 6 | 0 | 7 | 0.0 | 14 | 506.96 | fail |
+| sfx_off | 3 | 3 | 0 | 0 | 7.82 | 12 | 19.9 | fail |
+| soul_c2 | 36 | 36 | 0 | 0 | 0.95 | 1 | 2.07 | pass |
+| soul_dm7_2 | 36 | 27 | 0 | 27 | 0.92 | 1 | 13.95 | fail |
+| soul_g7_2 | 36 | 36 | 0 | 72 | — | — | — | fail |
+
+Reading the failures (other than the known differences above):
+
+- **Measurement limits, not differences:** `syncoff` and `vellim_out` fail only on the gate of a note
+  ended by a key release, whose time the recorder knows only within an I/O buffer (9.7 and 6.1 ms);
+  `vel0` plays velocity 1, below the analysis floor; the first-batch probes in the low register
+  (`outoct`, `pf1`–`pf3`, `cr`, `bal3`, `soul_*`, `accent_*`, `sfx`) cannot separate neighbouring keys
+  and were re-recorded an octave or more higher (`*_hi`, `soul_*_2`, `house_*`, `sfx_nc`);
+  `oct_idx`, `oct_idx_hi` and `syn_hi` leave 7–15 short notes unresolved where a quiet short note
+  follows a loud one on the same key within ~15 ms (checked by hand at 0.81 s of `oct_idx`: the
+  reference does play the note).
+- **Random:** `cr`, `cr_hi`, `q50` use random tracks (KD13).
+- **Open:** KD14–KD17, and style tracks (KD1).
+
+## 11. Decisions for Jacob
 
 1. Proposed measurement gate (section 6): 2 ms onset, keys exact, velocity ±1, gate 5 ms.
 2. Sustain pedal: latches arp keys and is not forwarded while the arp owns them (section 4.1).
