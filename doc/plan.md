@@ -1,6 +1,6 @@
 # Oscairn Arpeggiator: plan
 
-Status: 2026-11-01, first draft. Owner: Jacob Schooley.
+Status: 2026-11-01. Owner: Jacob Schooley.
 
 A phrase-based arpeggiator for [Oscairn](https://github.com/oscairn/oscairn): a CLAP note effect
 that turns held keys into notes and controllers by playing a *phrase*, a short looped pattern whose
@@ -181,9 +181,15 @@ for CI).
 
 The arp clock runs at the host tempo (`clap_event_transport.tempo`, 120 if absent), so it plays with
 the transport stopped, as the reference does. Sync Quantize aligns starts to the host beat timeline
-when the transport provides one (RFC 0012: Oscairn's transport, internal or following MIDI clock or
+while the transport plays (RFC 0012: Oscairn's transport, internal or following MIDI clock or
 Link), so every part's arpeggiator lines up. A playing-to-stopped transport transition ends all
 sounding notes. Unit Multiply scales the arp clock against the tempo.
+
+**While the transport is stopped** there is no shared beat grid yet (RFC 0032 step 3 adds a
+free-running host beat). Until then Sync Quantize waits for the next grid line of the instance's
+own arp clock, which starts when the instance activates: starts quantize correctly within one part,
+but two parts are not guaranteed to land on the same grid line (Known differences, KD6). When the
+host's free-running beat exists, the plugin reads it exactly as it reads the playing transport.
 
 ### 4.3 One instance per Part
 
@@ -197,7 +203,10 @@ Switch, Hold, Key Mode, Velocity Mode, Trigger, Loop, Play Only, Unit Multiply, 
 Quantize Strength, Swing, Velocity Rate, Gate Rate, Octave Range, Output Octave, Note Low, Note High,
 Velocity Low, Velocity High, Change Timing, Accent Threshold, Accent Quantize, Random SFX, SFX
 Velocity Offset, SFX Key Velocity, Fixed SD/BD, Sync Quantize, Slot, Slot 1–8 Velocity Offset,
-Slot 1–8 Gate Offset. Phrase slots live in the state.
+Slot 1–8 Gate Offset, Record, Record Bars, Record Convert. Phrase slots live in the state.
+
+No pitch limit applies beyond the documented parameter ranges: walkers span their octaves plus
+the full Octave Range, and only the MIDI key range (0–127, folded by octaves) bounds the result.
 
 ### 4.4 What the converter needs
 
@@ -254,10 +263,61 @@ calibration; gate length within 5 ms. A probe passes only if every note passes.
 | M2 | Extractor and converter notes | All factory and user arps convert and parse |
 | M3 | Measurements of the most used settings and arps | Proposed gate on each probe |
 | M4 | Style tracks (R25), accent (R17), SFX (R18), Fixed SD/BD (R19) measured | Proposed gate |
-| M5 | Record mode, phrase editor operations, asset references | Tests; editor description draft agreed with Oscairn |
+| M5 | Record mode (done, tested), MIDI import in the C++ library, phrase editor operations, asset references | Tests; editor description draft agreed with Oscairn |
 | M6 | Motion-sequencer lanes on the same engine | Separate plan |
 
-## 8. Decisions for Jacob
+## 8. Alignment with Oscairn RFC 0032
+
+RFC 0032 (Oscairn's side of the arpeggiator) was read at Oscairn commit 6396d9c. This plan agrees
+with it except where noted:
+
+- **Pushed phrases are parsed on the main thread** (resolves RFC 0032's open question and an
+  earlier disagreement between this plan and the format document). The audio thread only copies the
+  message into a preallocated 256 KiB inbox (bounded time, no allocation) and asks for a main-thread
+  callback; the phrase takes over its slot at the start of the first block after the main thread
+  has parsed it. Latency is one main-thread round trip, not sample-exact as RFC 0032's
+  "at an exact sample" puts it (KD9). One push is in flight at a time; another arriving meanwhile
+  is dropped (to be counted once the host has a place to report it).
+- **The in-band push waits for RFC 0032 step 1** (SysEx between plugins). Until Oscairn's graph
+  carries `CLAP_EVENT_MIDI_SYSEX`, the push works with hosts that deliver SysEx; it is tested with
+  this repository's own test host (`tests/test_plugin.cpp`).
+- **The `7D` message never leaves the plugin:** the arpeggiator consumes every SysEx it receives
+  and emits none, so the push cannot reach a MIDI out through it. Filtering `7D` at hardware MIDI
+  outs (for messages sent past the arpeggiator) is the host's side.
+- **Stopped transport:** see 4.2; the plugin uses its own clock until the free-running beat exists.
+  RFC 0032 also asks that a song-position jump while playing restarts phrases at the next grid
+  line; not implemented yet (KD7).
+- **Recording by playing:** the plugin has its own record mode (Record, Record Bars, Record Convert;
+  phrase-format.md), which works in any CLAP host and needs nothing from Oscairn. RFC 0032's host
+  note capture with a **Make phrase** action would give retroactive capture; it should call the same
+  conversion. Today the conversion exists twice (C++ in `src/record.cpp` for the plugin, Python in
+  `tools/midi_to_phrase.py`); moving MIDI import into the C++ library as the `phrase.import-midi`
+  operation RFC 0032 describes is milestone M5. Whether both recorders are kept is Jacob's call.
+- **`author` and `tags`** are in the format before version 1 is frozen.
+- **Style tracks (R25):** the transposition is an approximation built from chord-tone rules; the
+  tables are to come from measurement (KD1).
+
+## 9. Known differences from the reference
+
+One entry per known difference: what, size and where, cause, deliberate or unresolved, how to
+reproduce, where in the code. Entries are added as measurements find them and removed when fixed.
+
+| # | What | Size and where | Cause | Status | Reproduce | Code |
+| --- | --- | --- | --- | --- | --- | --- |
+| KD1 | Style tracks (R25) transpose source pitches by root plus chord-tone rules, not the reference's transposition tables | Any style track on chords other than its source chord; size unmeasured | Tables unknown; to be measured | Unresolved | `arp-render` a converted style phrase (for example `MA_Soul 1 _C`) on Dm7 and compare with the reference render | `Player::playStyle` |
+| KD2 | A chord change while style notes sound does not re-pitch or stop them (the `rule … RETRIGGER` field is read but unused) | Style tracks only | Not implemented | Unresolved | Change the chord mid-note on a style phrase | `Player::playStyle` |
+| KD3 | Chord recognition (for chord filters and style tracks) uses the plugin's own interval table; unusual voicings may be named differently | Chord filters with partial masks, style tracks | Own design | Unresolved, to measure | Hold an unusual voicing on a style phrase | `Player::detectChord` |
+| KD4 | Walkers have no octave ceiling: octaves plus the full Octave Range are walked | Walker tracks with many octaves and a large positive Octave Range; the reference may limit the span (to measure) | Jacob's rule: no limit beyond parameter ranges | Deliberate | `octaves 4` phrase with Octave Range +3 | `Player::playEvent`, walker branch |
+| KD5 | A key-count remapping field in the instrument's arp files (unused by every factory file) has no equivalent | None in factory content | No data uses it | Deliberate | The extractor's report lists any file that sets it | extractor (outside this repo) |
+| KD6 | Sync Quantize with the transport stopped aligns to the instance's own clock, not a shared grid | Parts started together on a stopped transport may differ by up to one grid step | No shared beat while stopped (RFC 0032 step 3) | Deliberate until the host adds the beat | Two instances activated at different times, transport stopped, Sync Quantize 480 | `Player::startPhrase` |
+| KD7 | A song-position jump while playing does not restart phrases at the next grid line | Hosts that relocate while playing | Not implemented | Unresolved | Relocate the transport while a phrase plays | `Plugin::process` |
+| KD8 | Note expressions (per-note pressure, tuning) of passed-through keys are not forwarded | Direct key modes and keys outside the limits | Not implemented | Unresolved | Send `CLAP_EVENT_NOTE_EXPRESSION` for a passed-through key | `Plugin::input` |
+| KD9 | Pushed phrases take over a block after the main thread parses them, not at the event's sample | All pushes | Parsing must not run unbounded on the audio thread | Deliberate | `tests/test_plugin.cpp`, push case | `Plugin::sysex`, `Plugin::mainThread` |
+| KD10 | SysEx other than the push message is dropped, not passed on | Any SysEx on the note input | Keeps private messages inside the plugin | Deliberate | Send any SysEx through | `Plugin::sysex` |
+| KD11 | Literal-note and fallback events of user arps recorded on the instrument are not converted | User arps made with the instrument's recording (none in Jacob's set) | No sample files to verify their layout | Unresolved | Convert such a file; the report names it | extractor |
+| KD12 | A 4-byte controller record in 18 factory arps is skipped | Those 18 phrases | Meaning unknown | Unresolved | Extractor report | extractor |
+
+## 10. Decisions for Jacob
 
 1. Proposed measurement gate (section 6): 2 ms onset, keys exact, velocity ±1, gate 5 ms.
 2. Sustain pedal: latches arp keys and is not forwarded while the arp owns them (section 4.1).
