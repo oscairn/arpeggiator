@@ -791,7 +791,9 @@ void Player::advanceTo(uint32_t frame) {
                     for (b = a; b < styleCount && s[style[b]].track == s[style[a]].track; ++b) group[n++] = s[style[b]].event;
                     playStyleGroup(s[style[a]].track, group, n, next, f);
                 }
-                (kind == 3 ? nextPos_ : accentPos_) = std::nextafter(tick, kNever);
+                // Just past the tick, as a normal number: with flush-to-zero on (some plugins leave it on the
+                // audio thread) the denormal just past 0 reads as 0, and tick 0 would play again forever.
+                (kind == 3 ? nextPos_ : accentPos_) = std::max(std::nextafter(tick, kNever), std::numeric_limits<double>::min());
                 break;
             }
             case 6: accent_ = 0; break;  // the accent pass is over

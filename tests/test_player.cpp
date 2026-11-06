@@ -11,6 +11,10 @@
 #include "check.h"
 #include "player.h"
 
+#if defined(__x86_64__)
+#include <xmmintrin.h>
+#endif
+
 using namespace arp;
 
 namespace {
@@ -676,4 +680,40 @@ TEST(work_per_block_stays_bounded_for_any_phrase_and_clock) {
         }
         CHECK(most <= Player::kMaxSteps);
     }
+}
+
+namespace {
+// Flush-to-zero with denormal inputs read as zero, as some plugins leave it on a host's audio thread.
+struct FlushToZero {
+#if defined(__aarch64__)
+    uint64_t saved;
+    FlushToZero() { asm volatile("mrs %0, fpcr" : "=r"(saved)); asm volatile("msr fpcr, %0" ::"r"(saved | (uint64_t(1) << 24))); }
+    ~FlushToZero() { asm volatile("msr fpcr, %0" ::"r"(saved)); }
+#elif defined(__x86_64__)
+    unsigned saved = _mm_getcsr();
+    FlushToZero() { _mm_setcsr(saved | 0x8040); }
+    ~FlushToZero() { _mm_setcsr(saved); }
+#endif
+};
+}  // namespace
+
+TEST(phrases_play_the_same_with_flush_to_zero) {
+    // The patterns of the arps in three converted Performances that stalled hosted (with an event on
+    // tick 0): a two-key octave climb for 1-2 held keys, a three-key one for exactly 3, and 1/16 up/down.
+    auto two = phrase("track\n  keys template+held\n  held 1 2\n  note 0 p0 v100 g120\n  note 120 p1 v100 g120\n"
+                      "  note 240 p0+1 v100 g120\n  note 360 p1+1 v100 g120\n  note 480 p0+2 v100 g120\n  note 600 p1+2 v100 g120\nend\n",
+                      "length 960\nmeter 2 4");
+    auto three = phrase("track\n  keys template+held\n  held 3 3\n  note 0 p0 v100 g120\n  note 120 p1 v100 g120\n"
+                        "  note 240 p2 v100 g120\n  note 360 p0+1 v100 g120\n  note 480 p1+1 v100 g120\n  note 600 p2+1 v100 g120\nend\n",
+                        "length 960\nmeter 2 4");
+    auto updown = phrase(steps("updown", {}, 16, 100), "length 1920");
+    const std::vector<std::vector<Key>> chords = {{on(10, 60)}, {on(10, 60), on(10, 64)}, kTriad};
+    for (const Phrase* ph : {two.get(), three.get(), updown.get()})
+        for (const auto& keys : chords) {
+            const auto plain = render(*ph, {}, keys, 4000, 64);
+            FlushToZero ftz;
+            const auto flushed = render(*ph, {}, keys, 4000, 64);
+            CHECK_EQ(flushed.size(), plain.size());
+            CHECK(onKeys(flushed) == onKeys(plain) && onTicks(flushed) == onTicks(plain));
+        }
 }
