@@ -475,6 +475,13 @@ int main(int argc, char** argv) {
         CHECK(offs == 1);
     }
 
+    {  // a recording in progress keeps the plugin processing: a host may stop calling process after SLEEP
+        Instance in(factory);
+        OutEvents out;
+        in.run(out, {at(0, param(45, 1)), at(100, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(200, note(CLAP_EVENT_NOTE_OFF, 0, 60, 0, 1))}, 2000, 256);
+        CHECK(in.status == CLAP_PROCESS_CONTINUE);
+    }
+
     entry->deinit();
     dlclose(lib);
     std::printf("%s (%d failed checks)\n", failures ? "FAIL" : "ok", failures);

@@ -518,7 +518,8 @@ struct Plugin {
             if (host && host->request_callback) host->request_callback(host);
         }
         sink.out = nullptr;
-        return player.idle() ? CLAP_PROCESS_SLEEP : CLAP_PROCESS_CONTINUE;
+        // A recording needs the clock to run on; a host may stop calling process after SLEEP.
+        return player.idle() && recordState.load(std::memory_order_relaxed) != 1 ? CLAP_PROCESS_SLEEP : CLAP_PROCESS_CONTINUE;
     }
 
     // State: a text header, then parameters, then each slot's phrase text with its byte count.
