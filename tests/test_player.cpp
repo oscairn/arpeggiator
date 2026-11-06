@@ -717,3 +717,24 @@ TEST(phrases_play_the_same_with_flush_to_zero) {
             CHECK(onKeys(flushed) == onKeys(plain) && onTicks(flushed) == onTicks(plain));
         }
 }
+
+TEST(a_phrase_replacing_the_playing_slot_carries_on_in_place) {
+    // A phrase pushed or loaded into the slot that is playing takes over where the pass is, not by
+    // replaying every event the pass has already passed at once.
+    auto a = phrase(steps("index", {"p0"}, 4, 30), "length 480");
+    auto b = phrase("track\n  note 0 k90 v100 g30\n  note 120 k91 v100 g30\n  note 240 k92 v100 g30\n  note 360 k93 v100 g30\nend\n", "length 480");
+    Player p;
+    p.setPhrase(0, a.get());
+    p.setSettings({});
+    Collect c;
+    Clock clock;
+    for (long tick = 0; tick < 600; ++tick) {  // one-tick blocks; b replaces a between the blocks at tick 300
+        if (tick == 300) p.setPhrase(0, b.get());
+        c.base = tick * kTick;
+        p.begin(clock, kTick, c);
+        if (tick == 0) p.keyOn(0, 0, 60, 100, -1);
+        p.end();
+    }
+    CHECK(onKeys(c.events) == v({60, 60, 60, 93, 90}));
+    CHECK(onTicks(c.events) == std::vector<long>({0, 120 * kTick, 240 * kTick, 360 * kTick, 480 * kTick}));
+}

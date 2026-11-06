@@ -80,9 +80,9 @@ void Player::setPhrase(int slot, const Phrase* phrase) {
     if (slot < 0 || slot >= kSlots) return;
     slots_[slot] = phrase;
     if (slot == settings_.slot) {
+        // A running pass keeps its position: resetting it would replay the elapsed events at once.
         phrase_ = phrase;
         scheduleDirty_ = true;
-        nextPos_ = 0;
         for (auto& w : walk_) w = Walk{};
     }
 }
