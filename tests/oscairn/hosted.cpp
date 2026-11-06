@@ -5,9 +5,10 @@
 //      two blocks of its sample (the main thread parses it between blocks);
 //   3. stopped transport: two arpeggiators with Sync Quantize, the second added 100 ms later, start on
 //      the same sample (the free-running beat, oscairn.beat);
-//   4. with an archive: a converted Performance installs as a library, loads with the arpeggiator
-//      and the engine (no stand-ins), plays repeated notes with the arpeggiator on and one with it
-//      off, and saves and loads again with the same state and the same audio.
+//   4. with an archive: a converted Performance installs as a library, loads with its arpeggiators
+//      (the nodes with the role) and the engines (no stand-ins), plays repeated notes with every
+//      arpeggiator on and one with them all off, and saves and loads again with the same states and
+//      the same audio.
 //   5. Chord Source Harmony: the chord held in a lower zone, given to the arpeggiator as its harmony
 //      (oscairn.harmony) while its own input hears only the upper zone, drives the phrase; the key
 //      in the upper zone starts it. Off, the arpeggiator plays its own key.
@@ -15,6 +16,7 @@
 #include "oscairn/graph.h"
 #include "oscairn/session.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -111,12 +113,12 @@ std::string keys(const std::vector<Note>& v, size_t n = 8) {
     return s;
 }
 
-std::vector<float> play(oscairn::Session& s, int seconds, bool keysDown = true) {
+std::vector<float> play(oscairn::Session& s, int seconds, std::vector<int> keys = {48, 52, 55}) {
     std::vector<float> all, l(256), r(256);
     float* out[]{l.data(), r.data()};
-    if (keysDown) for (int k : {48, 52, 55}) s.note(true, k, 0.8);
+    for (int k : keys) s.note(true, k, 0.8);
     for (int b = 0; b < seconds * 48000 / 256; ++b) {
-        if (b == seconds * 48000 / 256 - 40) for (int k : {48, 52, 55}) s.note(false, k, 0);
+        if (b == seconds * 48000 / 256 - 40) for (int k : keys) s.note(false, k, 0);
         s.process(out, 256);
         all.insert(all.end(), l.begin(), l.end());
         s.service();
@@ -241,11 +243,23 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (argc == 6) {  // 4. a converted Performance
+    if (argc == 6) {  // 4. a converted Performance, with any number of arpeggiators (one per arpeggiating Part)
         setenv("OSCAIRN_DATA_HOME", (tmp / "data").c_str(), 1);
         oscairn::setPlacementPolicy({std::string(), oscairn::Placement::Worker});
+        // Every arpeggiator's state in a saved Performance, by path.
+        auto arpStates = [](const fs::path& dir) {
+            std::vector<std::pair<std::string, std::string>> v;
+            for (const auto& e : fs::recursive_directory_iterator(dir))
+                if (e.path().filename() == "state.clap") {
+                    std::string t = slurp(e.path());
+                    if (t.rfind("oscairn-arpeggiator 1\n", 0) == 0) v.emplace_back(e.path().lexically_relative(dir).string(), std::move(t));
+                }
+            std::sort(v.begin(), v.end());
+            return v;
+        };
         std::vector<float> fresh;
-        std::string savedState;
+        std::vector<std::pair<std::string, std::string>> saved;
+        size_t arpCount = 0;
         {
             oscairn::Session s(48000, 256);
             const auto inst = s.installArchive(argv[4], true, {}, true);
@@ -254,29 +268,84 @@ int main(int argc, char** argv) {
             s.loadPerformanceFromLibrary(argv[5]);
             const auto st = s.sessionStatus();
             check(st.failures.empty(), "no plugin failed");
-            oscairn::NodeId a = 0;
-            for (const auto& [id, name] : s.graphState().names) {
-                std::printf("      node %u: %s (%s)\n", id, name.c_str(), s.graphState().names.size() ? "" : "");
-                if (name.size() > 4 && name.compare(name.size() - 4, 4, " Arp") == 0) a = id;
-            }
-            check(a != 0, "the part's chain has the arpeggiator");
-            check(s.setParameter(a, 1, 1), "switch the arpeggio on");
-            s.service();
-            fresh = play(s, 3);
-            const int on = onsets(fresh);
-            check(on >= 8, "arpeggiated: " + std::to_string(on) + " onsets in 2.8 s from one held chord");
-            s.setParameter(a, 1, 0);
-            s.service();
-            play(s, 1, false);
-            const int off = onsets(play(s, 3));
-            check(off <= 2, "arpeggio off: " + std::to_string(off) + " onsets");
-            s.setParameter(a, 1, 1);
-            s.service();
+            for (const auto& f : st.failures) std::printf("      failure: %s: %s\n", f.name.c_str(), f.reason.c_str());
+            // The arpeggiators: the nodes with the role (RFC 0032); for a conversion from before the
+            // converter wrote roles, the nodes named "... Arp".
+            const auto graph = s.graphState();
+            std::vector<oscairn::NodeId> arps;
+            for (const auto& [id, role] : graph.roles) if (role == "arpeggiator") arps.push_back(id);
+            if (arps.empty())
+                for (const auto& [id, name] : graph.names)
+                    if (name.size() > 4 && name.compare(name.size() - 4, 4, " Arp") == 0) arps.push_back(id);
+            for (const auto& [id, name] : graph.names)
+                std::printf("      node %u: %s%s\n", id, name.c_str(), std::count(arps.begin(), arps.end(), id) ? " (arpeggiator)" : "");
+            arpCount = arps.size();
+            check(!arps.empty(), "the Performance has arpeggiators (" + std::to_string(arps.size()) + ")");
+            auto switchAll = [&](int on) {
+                bool ok = !arps.empty();
+                for (const auto a : arps) ok = s.setParameter(a, 1, on) && ok;
+                s.service();
+                return ok;
+            };
+            check(switchAll(1), "switch every arpeggio on");
+            fresh = play(s, 3);  // before anything else plays: the reloaded Performance is compared with it
+            check(onsets(fresh) >= 1, "the mix sounds with every arpeggio on");
             s.savePerformance((tmp / "saved").string());
-            for (const auto& e : fs::recursive_directory_iterator(tmp / "saved"))
-                if (e.path().filename() == "state.clap" && slurp(e.path()).rfind("oscairn-arpeggiator 1\n", 0) == 0) savedState = slurp(e.path());
-            check(savedState.find("slot 0 ") != std::string::npos && savedState.find("param 1 1\n") != std::string::npos,
-                  "the saved Performance holds the arpeggiator's state with its phrase");
+            saved = arpStates(tmp / "saved");
+            bool ok = saved.size() == arps.size();
+            for (const auto& [path, text] : saved) ok = ok && text.find("slot ") != std::string::npos && text.find("param 1 1\n") != std::string::npos;
+            check(ok, "the saved Performance holds every arpeggiator's state with its phrases (" + std::to_string(saved.size()) + " of " + std::to_string(arps.size()) + ")");
+            play(s, 2, {});
+            // Each arpeggiating part alone (soloed), with a chord inside its own zone (parts of a split
+            // hear different keys), its arpeggio off: one chord, no repeated notes. (Repeated notes with
+            // it on are counted below as the notes the arpeggiator sends, since legato steps on a
+            // sustained sound leave the level without dips.)
+            bool quiet = true;
+            for (const auto& part : s.parts()) {
+                const auto a = std::find_if(part.chain.begin(), part.chain.end(), [&](oscairn::NodeId n) { return std::count(arps.begin(), arps.end(), n); });
+                if (a == part.chain.end() || part.input.zones.empty()) continue;
+                const int lo = part.input.zones[0].lowKey, hi = part.input.zones[0].highKey;
+                const int base = std::clamp(60, lo, std::max(lo, hi - 7));
+                std::vector<int> chord;
+                for (int k : {base, base + 4, base + 7}) if (k <= hi) chord.push_back(k);
+                s.setPartSolo(part.id, true);
+                s.setPartLevel(part.id, part.level, false);
+                s.commit();  // solo and level are staged graph edits
+                s.setParameter(*a, 1, 0);
+                s.service();
+                const int off = onsets(play(s, 3, chord));
+                s.setParameter(*a, 1, 1);
+                s.setPartSolo(part.id, false);
+                s.setPartLevel(part.id, part.level, part.mute);
+                s.commit();
+                s.service();
+                play(s, 1, {});
+                std::printf("      part %u %s (keys %d-%d): %d onsets with its arpeggio off\n", part.id, part.name.c_str(), lo, hi, off);
+                quiet = quiet && off <= 2;
+            }
+            check(quiet, "no part arpeggiates with its switch off");
+        }
+        {   // Each arpeggiator as saved, in a graph of its own, on a three- and a two-key chord (a
+            // phrase plays only for its held counts): the busiest sends repeated notes.
+            int most = 0;
+            for (const auto& [path, text] : saved) {
+                const auto dir = (tmp / "saved" / path).parent_path().string();
+                for (int held : {3, 2}) {
+                    std::vector<Input> in;
+                    for (int i = 0; i < held; ++i) in.push_back({100, Event::note(true, 60 + (i == 0 ? 0 : i == 1 ? 4 : 7), .8, 0, 0, 0, i + 1)});
+                    const auto ons = render(worker, false, 256, 134400, in, [&](oscairn::Graph& g, Recorder& rec, int64_t at) {
+                        if (at) return;
+                        const auto n = g.add(arp, "org.oscairn.arpeggiator");
+                        g.host(n).loadState(dir);
+                        g.connectNotes(oscairn::graphInput, n);
+                        g.commit();
+                        rec.nodes[0] = n;
+                    })[0];
+                    std::printf("      %s: %zu notes in 2.8 s from %d held keys: %s\n", path.c_str(), ons.size(), held, keys(ons).c_str());
+                    most = std::max<int>(most, int(ons.size()));
+                }
+            }
+            check(most >= 8, "arpeggiated: " + std::to_string(most) + " notes in 2.8 s from one held chord by the busiest arpeggiator");
         }
         {
             oscairn::Session s(48000, 256);
@@ -287,10 +356,8 @@ int main(int argc, char** argv) {
             for (size_t i = 0; i < std::min(again.size(), fresh.size()); ++i) { diff = std::max(diff, double(std::fabs(again[i] - fresh[i]))); energy += fresh[i] * fresh[i]; }
             check(energy > 1e-3 && diff < 1e-6, "the reloaded Performance plays the same (largest difference " + std::to_string(diff) + ")");
             s.savePerformance((tmp / "saved2").string());
-            std::string second;
-            for (const auto& e : fs::recursive_directory_iterator(tmp / "saved2"))
-                if (e.path().filename() == "state.clap" && slurp(e.path()).rfind("oscairn-arpeggiator 1\n", 0) == 0) second = slurp(e.path());
-            check(!second.empty() && second == savedState, "its state round-trips byte for byte");
+            const auto second = arpStates(tmp / "saved2");
+            check(second.size() == arpCount && second == saved, "every arpeggiator's state round-trips byte for byte");
         }
     }
     fs::remove_all(tmp);

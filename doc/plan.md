@@ -1,6 +1,6 @@
 # Oscairn Arpeggiator: plan
 
-Status: 2026-11-02. Owner: Jacob Schooley.
+Status: 2026-11-06. Owner: Jacob Schooley.
 
 A phrase-based arpeggiator for [Oscairn](https://github.com/oscairn/oscairn): a CLAP note effect
 that turns held keys into notes and controllers by playing a *phrase*, a short looped pattern whose
@@ -345,11 +345,17 @@ RFC 0032 (Oscairn's side of the arpeggiator) was read at Oscairn commit 6396d9c 
   key (engine and worker, 256- and 37-sample blocks; fails with the plugin from before the change).
   Oscairn's sessions give each part the harmony of its own input, so a chord from another Part is
   given at the graph level here.
-  **Stopped here (2026-11-02):** the converted-Performance steps cannot run against Oscairn 3b58efe
-  with converter output as of 373f088: loading it fails with "Invalid instrument pool snapshot"
-  (the converter writes `state 1` snapshots where Oscairn's pooled instruments expect `pool 1`).
-  The hosted check of optional phrase assets (deleted assets: loads with a notice, plays the same,
-  re-save keeps them optional) is written but not committed or run until the converter is fixed.
+  **Converted Performances (2026-11-06):** the converted-Performance steps run against Oscairn main
+  (9325875) with the converter's library as of 97a2c46 (`Jacob's Performances.olib`, Space Song 2,
+  five arpeggiators on a keyboard split). The test takes the arpeggiators from the nodes' role (the
+  name suffix " Arp" for older conversions), plays each arpeggiating part alone with a chord inside
+  its own zone with its arpeggio off (one chord, no repeated notes), counts the notes each saved
+  arpeggiator sends in a graph of its own on a three- and a two-key chord (phrases play only for
+  their held counts: SpcEx12 for 1–2 keys, SpcEx3 for 3), and checks the save and reload: every
+  arpeggiator's state byte for byte and the same audio. The audio compares only when the
+  Performance is saved before any part is soloed or its level set: saved after that, the reload
+  played differently (largest difference 0.09; not investigated, outside this plugin). The hosted
+  check of deleted optional assets is still not written.
   Chord Source is done: built, unit-, plugin- and hosted-tested.
 - **Recording by playing:** the plugin has its own record mode (Record, Record Bars, Record Convert;
   phrase-format.md), which works in any CLAP host and needs nothing from Oscairn. RFC 0032's host
