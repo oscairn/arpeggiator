@@ -22,7 +22,7 @@ struct Cursor {
 
 bool isSpace(char c) { return c == ' ' || c == '\t' || c == '\r'; }
 
-// Next whitespace-separated word on the current line; a quoted string keeps its spaces.
+// Next whitespace-separated word on the current line; a quoted string keeps its spaces and may be empty.
 bool word(Cursor& c, const char*& w, size_t& n) {
     while (!c.atEnd() && isSpace(*c.p)) ++c.p;
     if (c.atEnd() || *c.p == '\n' || *c.p == '#') return false;
@@ -209,10 +209,9 @@ bool parsePhrase(const char* text, size_t size, Phrase& out, char* error, size_t
             track->templateCount = 0;
             while (word(c, w, n)) {
                 if (track->templateCount == kMaxTemplate) return fail("too many template notes");
-                const bool follows = w[0] == 'c';
-                if ((w[0] != 'c' && w[0] != 'a') || !number(w + 1, n - 1, v) || v < 0 || v > 127)
+                if (!n || (w[0] != 'c' && w[0] != 'a') || !number(w + 1, n - 1, v) || v < 0 || v > 127)
                     return fail("template notes are c<key> (follows the chord) or a<key> (absolute)");
-                track->templ[track->templateCount++] = {uint8_t(v), follows};
+                track->templ[track->templateCount++] = {uint8_t(v), w[0] == 'c'};
             }
         } else if (eq(w, n, "randomize")) {
             long long a[8];
@@ -253,9 +252,9 @@ bool parsePhrase(const char* text, size_t size, Phrase& out, char* error, size_t
             if (kind == 'n') {
                 e.type = EventType::Note;
                 if (!word(c, w, n) || !source(w, n, e)) return fail("bad note source (k60, r60, p2, p2+1, p2/k64)");
-                if (!word(c, w, n) || w[0] != 'v' || !number(w + 1, n - 1, v) || v < 1 || v > 127) return fail("note needs v1..v127");
+                if (!word(c, w, n) || !n || w[0] != 'v' || !number(w + 1, n - 1, v) || v < 1 || v > 127) return fail("note needs v1..v127");
                 e.velocity = uint8_t(v);
-                if (!word(c, w, n) || w[0] != 'g' || !number(w + 1, n - 1, v) || v < 1 || v > 100000000) return fail("note needs g<ticks>");
+                if (!word(c, w, n) || !n || w[0] != 'g' || !number(w + 1, n - 1, v) || v < 1 || v > 100000000) return fail("note needs g<ticks>");
                 e.gate = uint32_t(v);
             } else if (kind == 'c') {
                 long long val;
