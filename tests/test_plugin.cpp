@@ -100,6 +100,12 @@ clap_event_note_t note(uint16_t type, uint32_t time, int key, double vel = 0.8, 
     e.note_id = id; e.port_index = 0; e.channel = 0; e.key = int16_t(key); e.velocity = vel;
     return e;
 }
+clap_event_midi_t midi(uint8_t status, uint8_t d1, uint8_t d2) {
+    clap_event_midi_t e{};
+    e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0};
+    e.port_index = 0; e.data[0] = status; e.data[1] = d1; e.data[2] = d2;
+    return e;
+}
 clap_event_param_value_t param(clap_id id, double v) {
     clap_event_param_value_t e{};
     e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
@@ -112,6 +118,7 @@ struct Instance {
     const clap_plugin_params_t* params;
     const clap_plugin_state_t* state;
     double beatOffset = -1;  // >= 0: send the free-running beat, pos / 24000 + beatOffset, each block
+    clap_process_status status = CLAP_PROCESS_ERROR;  // of the last process call
     Instance(const clap_plugin_factory_t* f, const clap_host_t* host = &kHost) {
         p = f->create_plugin(f, host, "org.oscairn.arpeggiator");
         p->init(p);
@@ -150,7 +157,7 @@ struct Instance {
             tr.tempo = 120;
             clap_process_t b{};
             b.steady_time = pos; b.frames_count = n; b.transport = &tr; b.in_events = &ev.api; b.out_events = &out.api;
-            p->process(p, &b);
+            status = p->process(p, &b);
         }
     }
 };
@@ -453,6 +460,19 @@ int main(int argc, char** argv) {
         audio.join();
         in.p->on_main_thread(in.p);
         CHECK(saves > 0);
+    }
+
+    {  // the sustain pedal is followed with the arpeggio off too: a release after it comes up still ends the key
+        Instance in(factory);
+        CHECK(load(in, stateWith(kUp)));
+        in.p->on_main_thread(in.p);
+        OutEvents out;
+        // Pedal down with the arpeggio on, Switch off, pedal up (passed through), then a key pressed and released.
+        in.run(out, {at(0, midi(0xB0, 64, 127)), at(100, param(1, 0)), at(200, midi(0xB0, 64, 0)),
+                     at(300, note(CLAP_EVENT_NOTE_ON, 0, 62, 0.8, 5)), at(400, note(CLAP_EVENT_NOTE_OFF, 0, 62, 0, 5))}, 1000, 256);
+        int offs = 0;
+        for (auto& n : out.notes) offs += n.type == CLAP_EVENT_NOTE_OFF && n.key == 62;
+        CHECK(offs == 1);
     }
 
     entry->deinit();

@@ -414,7 +414,8 @@ struct Plugin {
                 const double recTick = recordClock + frame * recordTicksPerFrame;
                 if (kind == 0x90 && m.data[2]) { if (rec) recorder.keyOn(recTick, m.data[1] & 127, m.data[2] & 127); player.keyOn(frame, ch, m.data[1] & 127, m.data[2] & 127, -1); return; }
                 if (kind == 0x80 || kind == 0x90) { if (rec) recorder.keyOff(recTick, m.data[1] & 127); player.keyOff(frame, ch, m.data[1] & 127, -1); return; }
-                if (kind == 0xB0 && m.data[1] == 64 && player.settings().on) { player.sustain(frame, ch, m.data[2] >= 64); return; }
+                // The player follows the pedal with the arpeggio off too, or a key released after it comes up would wait for it.
+                if (kind == 0xB0 && m.data[1] == 64) { player.sustain(frame, ch, m.data[2] >= 64); if (player.settings().on) return; }
                 if (kind == 0xB0 && (m.data[1] == 120 || m.data[1] == 123)) { player.advance(frame); recover(frame, out); }
                 player.advance(frame);
                 passMidi(m, frame, out);
