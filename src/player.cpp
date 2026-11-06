@@ -106,6 +106,8 @@ void Player::setSettings(const Settings& s) {
             pendingSlot_ = -1;
         } else pendingSlot_ = want;
     }
+    // Inside a block the schedule must follow the phrase now: the old one would index the new phrase.
+    if (scheduleDirty_ && sink_) rebuildSchedule();
     if (wasOn && !s.on) {
         running_ = audible_ = false;
         startAt_ = -1;

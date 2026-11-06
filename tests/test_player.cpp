@@ -738,3 +738,27 @@ TEST(a_phrase_replacing_the_playing_slot_carries_on_in_place) {
     CHECK(onKeys(c.events) == v({60, 60, 60, 93, 90}));
     CHECK(onTicks(c.events) == std::vector<long>({0, 120 * kTick, 240 * kTick, 360 * kTick, 480 * kTick}));
 }
+
+TEST(a_real_time_slot_change_inside_a_block_plays_the_new_phrase) {
+    // The schedule follows the phrase at once: the old phrase's schedule must not index the new one.
+    auto a = phrase(steps("index", {"p0"}, 4, 30), "length 480");
+    auto b = phrase("track\n  note 0 k90 v100 g30\nend\n", "length 480");
+    Settings s, t;
+    s.changeTiming = t.changeTiming = ChangeTiming::Realtime;
+    t.slot = 1;
+    Player p;
+    p.setPhrase(0, a.get());
+    p.setPhrase(1, b.get());
+    p.setSettings(s);
+    Collect c;
+    Clock clock;
+    p.begin(clock, 480 * kTick, c);
+    p.keyOn(0, 0, 60, 100, -1);
+    p.advance(130 * kTick);
+    p.setSettings(t);
+    p.end();
+    CHECK(onKeys(c.events) == v({60, 60}));  // b's only note, at tick 0, is behind the pass position
+    p.begin(clock, 480 * kTick, c);
+    p.end();
+    CHECK(onKeys(c.events) == v({60, 60, 90}));
+}
