@@ -113,6 +113,10 @@ public:
     // when the id is -1); -1 if it is not sounding.
     int32_t passThroughId(int32_t inputId, int channel, int key) const;
     bool idle() const;
+    // Moments (note ends, event ticks, pass ends) handled in the current block. A block handles at most
+    // kMaxSteps; past that the arpeggio stops rather than hold up the audio thread.
+    static constexpr uint32_t kMaxSteps = 1u << 16;
+    uint32_t steps() const { return steps_; }
 
 private:
     struct Held { uint8_t key, velocity, channel; uint32_t order; bool down, latched; };
@@ -180,6 +184,7 @@ private:
     double beatsPerFrame_ = 0;
     uint32_t blockFrames_ = 0;
     uint32_t cursorFrame_ = 0;
+    uint32_t steps_ = 0;         // moments handled in this block
     double origin_ = 0;          // clock tick of the current pass's start
     double startAt_ = -1;        // a start waiting for its quantize line
     double nextPos_ = 0;         // phrase position still to play in this pass

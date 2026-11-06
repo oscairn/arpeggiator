@@ -615,3 +615,65 @@ TEST(an_accent_started_mid_phrase_silences_normal_notes_for_a_quarter) {
     CHECK(onKeys(render(*ph, s, {on(0, 60, 80), on(500, 64, 110)}, 1900)) == v({40, 90, 43}));  // 41 and 42 fall in 500..980
     CHECK(onKeys(render(*ph, s, {on(0, 60, 110)}, 1900)) == v({90, 40, 41, 42, 43}));
 }
+
+TEST(work_per_block_stays_bounded_for_any_phrase_and_clock) {
+    // Random phrases, settings, tempos, block sizes and keys: no block handles more than kMaxSteps
+    // moments, so the audio thread is never held up. The first case alone needs far more than that: a
+    // one-tick loop at 30000 BPM, 3840 per quarter, 50 %.
+    uint32_t r = 12345;
+    auto rnd = [&](int n) { r ^= r << 13; r ^= r >> 17; r ^= r << 5; return int(r % uint32_t(n)); };
+    const char* selects[] = {"index", "index-last", "index-first", "bounce", "bounce2", "cycle", "up", "down", "updown", "updown2", "random", "style"};
+    const char* keyLists[] = {"held", "template+held", "template+upper"};
+    const int ppqs[] = {24, 96, 480, 3840};
+    for (int c = 0; c < 300; ++c) {
+        const int ppq = c ? ppqs[rnd(4)] : 3840;
+        const int length = c ? 1 + rnd(rnd(2) ? 8 : 8000) : 1;
+        std::string text = "ppq " + std::to_string(ppq) + "\nlength " + std::to_string(length);
+        std::string body;
+        for (int t = 0, tracks = 1 + rnd(3); t < tracks; ++t) {
+            body += std::string("track\n  select ") + selects[rnd(12)] + "\n  keys " + keyLists[rnd(3)] + "\n  template 60 c64 a36\n";
+            if (rnd(4) == 0) body += "  accent\n";
+            if (rnd(3) == 0) body += "  held " + std::to_string(1 + rnd(3)) + " any\n";
+            long tick = 0;
+            for (int e = 0, n = rnd(40); e < n; ++e) {
+                tick += rnd(3) ? 0 : rnd(length + 1);  // many on one tick, some past the end
+                const std::string at = std::to_string(tick);
+                if (rnd(4) == 0) body += "  cc " + at + " 74 " + std::to_string(rnd(128)) + "\n";
+                else body += "  note " + at + " p" + std::to_string(rnd(4)) + (rnd(2) ? "+1" : "") + " v" + std::to_string(1 + rnd(127)) +
+                             " g" + std::to_string(1 + rnd(2000)) + "\n";
+            }
+            body += "end\n";
+        }
+        auto ph = phrase(body, text.c_str());
+        Settings s;
+        s.unit = c ? rnd(10) : 0;
+        s.hold = HoldMode(rnd(3));
+        s.loop = rnd(4) != 0;
+        s.octaveRange = rnd(7) - 3;
+        s.quantizeStrength = rnd(2) ? 0 : rnd(101);
+        s.swing = rnd(241) - 120;
+        s.accentThreshold = rnd(2) ? 0 : 1 + rnd(127);
+        s.syncQuantize = rnd(2) ? 0 : 120;
+        Player p;
+        p.setPhrase(0, ph.get());
+        p.setSettings(s);
+        Collect sink;
+        Clock clock;
+        clock.tempo = c ? 20 * std::pow(50.0, rnd(1001) / 1000.0) : 30000;  // 20 .. 1000 BPM
+        const uint32_t block = c ? 1 + rnd(2048) : 1024;
+        uint32_t most = 0;
+        for (int b = 0; b < 40; ++b) {
+            sink.events.clear();
+            p.begin(clock, block, sink);
+            for (uint32_t k = 0, n = rnd(3), f = 0; k < n; ++k) {
+                f = std::max(f, uint32_t(rnd(int(block))));  // input in frame order
+                const int key = 48 + rnd(24);
+                if (rnd(3)) p.keyOn(f, 0, key, 1 + rnd(127), -1);
+                else p.keyOff(f, 0, key, -1);
+            }
+            p.end();
+            most = std::max(most, p.steps());
+        }
+        CHECK(most <= Player::kMaxSteps);
+    }
+}

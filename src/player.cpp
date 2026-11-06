@@ -230,6 +230,7 @@ void Player::begin(const Clock& clock, uint32_t frames, Sink& sink) {
     sink_ = &sink;
     blockFrames_ = frames;
     cursorFrame_ = 0;
+    steps_ = 0;
     const double ppq = phrase_ ? phrase_->ppq : 480;
     const double tempo = clock.tempo > 0 && std::isfinite(clock.tempo) ? clock.tempo : 120;
     const double rate = clock.sampleRate > 0 && std::isfinite(clock.sampleRate) ? clock.sampleRate : 48000;
@@ -761,6 +762,9 @@ void Player::advanceTo(uint32_t frame) {
         // Events belong to the first frame whose clock reaches them; that frame decides the block.
         const uint32_t f = frameAt(next);
         if (f >= frame) break;
+        // Safety net for a clock or phrase that leaves more to do than a block can afford.
+        if (steps_ == kMaxSteps) { stopArp(f); break; }
+        ++steps_;
         switch (kind) {
             case 0: noteOffAt(f, which); break;
             case 1: origin_ = startAt_; startAt_ = -1; nextPos_ = 0; if (accent_ == 1) accentAt_ = std::max(accentAt_, origin_); break;
