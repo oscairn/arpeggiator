@@ -385,7 +385,7 @@ struct Plugin {
         }
         if (h->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
         switch (h->type) {
-            case CLAP_EVENT_PARAM_VALUE: paramEvent(h); player.setSettings(settings()); return;
+            case CLAP_EVENT_PARAM_VALUE: paramEvent(h); player.advance(frame); player.setSettings(settings()); return;
             case CLAP_EVENT_NOTE_ON:
             case CLAP_EVENT_NOTE_OFF:
             case CLAP_EVENT_NOTE_CHOKE: {

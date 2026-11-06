@@ -482,6 +482,16 @@ int main(int argc, char** argv) {
         CHECK(in.status == CLAP_PROCESS_CONTINUE);
     }
 
+    {  // a parameter event inside a block takes effect at its frame, not at the block's start
+        Instance in(factory);
+        CHECK(load(in, stateWith(kUp)));
+        in.p->on_main_thread(in.p);
+        OutEvents out;
+        // Switch off at frame 6100: the step at frame 6000 (tick 120) still plays.
+        in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(6100, param(1, 0))}, 24000, 24000);
+        CHECK(ons(out) == std::vector<int>({60, 60}));
+    }
+
     entry->deinit();
     dlclose(lib);
     std::printf("%s (%d failed checks)\n", failures ? "FAIL" : "ok", failures);
