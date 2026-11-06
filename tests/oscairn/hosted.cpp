@@ -288,20 +288,18 @@ int main(int argc, char** argv) {
                 return ok;
             };
             check(switchAll(1), "switch every arpeggio on");
-            fresh = play(s, 3);  // before anything else plays: the reloaded Performance is compared with it
+            // Before anything else plays: the reload of the save below, made after every part has been
+            // soloed and unsoloed, is compared with it (later audio differs by timing alone).
+            fresh = play(s, 3);
             check(onsets(fresh) >= 1, "the mix sounds with every arpeggio on");
-            s.savePerformance((tmp / "saved").string());
-            saved = arpStates(tmp / "saved");
-            bool ok = saved.size() == arps.size();
-            for (const auto& [path, text] : saved) ok = ok && text.find("slot ") != std::string::npos && text.find("param 1 1\n") != std::string::npos;
-            check(ok, "the saved Performance holds every arpeggiator's state with its phrases (" + std::to_string(saved.size()) + " of " + std::to_string(arps.size()) + ")");
             play(s, 2, {});
             // Each arpeggiating part alone (soloed), with a chord inside its own zone (parts of a split
             // hear different keys), its arpeggio off: one chord, no repeated notes. (Repeated notes with
             // it on are counted below as the notes the arpeggiator sends, since legato steps on a
             // sustained sound leave the level without dips.)
             bool quiet = true;
-            for (const auto& part : s.parts()) {
+            const auto parts = s.parts();  // a copy: the edits below change the live parts (soloing unmutes)
+            for (const auto& part : parts) {
                 const auto a = std::find_if(part.chain.begin(), part.chain.end(), [&](oscairn::NodeId n) { return std::count(arps.begin(), arps.end(), n); });
                 if (a == part.chain.end() || part.input.zones.empty()) continue;
                 const int lo = part.input.zones[0].lowKey, hi = part.input.zones[0].highKey;
@@ -324,6 +322,11 @@ int main(int argc, char** argv) {
                 quiet = quiet && off <= 2;
             }
             check(quiet, "no part arpeggiates with its switch off");
+            s.savePerformance((tmp / "saved").string());
+            saved = arpStates(tmp / "saved");
+            bool ok = saved.size() == arps.size();
+            for (const auto& [path, text] : saved) ok = ok && text.find("slot ") != std::string::npos && text.find("param 1 1\n") != std::string::npos;
+            check(ok, "the saved Performance holds every arpeggiator's state with its phrases (" + std::to_string(saved.size()) + " of " + std::to_string(arps.size()) + ")");
         }
         {   // Each arpeggiator as saved, in a graph of its own, on a three- and a two-key chord (a
             // phrase plays only for its held counts): the busiest sends repeated notes.
