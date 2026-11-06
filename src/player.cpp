@@ -257,10 +257,14 @@ void Player::noteOffAt(uint32_t frame, int i) {
 }
 
 void Player::noteOn(uint32_t frame, int channel, int key, uint16_t velocity, double offTick, int32_t inputId, bool pass) {
-    if (!pass)  // a repeated key ends the note it is still sounding
-        for (int i = 0; i < kMaxSounding; ++i)
-            if (sounding_[i].used && !sounding_[i].passThrough && sounding_[i].key == key && sounding_[i].channel == channel)
-                noteOffAt(frame, i);
+    // A repeated key ends the note it is still sounding; a played key pressed again ends its earlier
+    // pass-through note (one the pedal holds after its release stays, as on a piano).
+    for (int i = 0; i < kMaxSounding; ++i) {
+        const Sounding& s = sounding_[i];
+        if (!s.used || s.passThrough != pass || s.channel != channel || s.key != key) continue;
+        if (pass && (s.waitPedal || (inputId >= 0 && s.inputId != inputId))) continue;
+        noteOffAt(frame, i);
+    }
     for (int i = 0; i < kMaxSounding; ++i) {
         if (sounding_[i].used) continue;
         if (nextId_ == std::numeric_limits<int32_t>::max()) nextId_ = 0;

@@ -762,3 +762,23 @@ TEST(a_real_time_slot_change_inside_a_block_plays_the_new_phrase) {
     p.end();
     CHECK(onKeys(c.events) == v({60, 60, 90}));
 }
+
+TEST(a_played_key_pressed_again_ends_its_earlier_pass_through_note) {
+    Settings s;
+    s.on = false;
+    for (int32_t id : {7, -1}) {
+        Player p;
+        p.setSettings(s);
+        Collect c;
+        Clock clock;
+        p.begin(clock, 1000, c);
+        p.keyOn(0, 0, 60, 100, id);
+        p.keyOn(100, 0, 60, 100, id);
+        p.keyOff(200, 0, 60, id);
+        p.end();
+        std::vector<int> types;
+        for (const auto& e : c.events) types.push_back(e.type);
+        CHECK(types == v({ON, OFF, ON, OFF}));
+        CHECK(p.idle());
+    }
+}
