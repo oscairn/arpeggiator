@@ -782,3 +782,12 @@ TEST(a_played_key_pressed_again_ends_its_earlier_pass_through_note) {
         CHECK(p.idle());
     }
 }
+
+TEST(a_slot_change_undone_before_the_bar_does_not_happen) {
+    auto a = phrase(steps("index", {"p0"}, 4, 30), "length 480");
+    auto b = phrase("track\n  note 0 k90 v100 g30\n  note 120 k90 v100 g30\n  note 240 k90 v100 g30\n  note 360 k90 v100 g30\nend\n", "length 480");
+    Settings s, t;
+    t.slot = 1;
+    // Measure timing: Slot goes to 2 at tick 130 and back to 1 at tick 200, before the bar line at 480.
+    CHECK(onKeys(render(*a, s, {on(0, 60)}, 960, 50, b.get(), {{130, t}, {200, s}})) == v({60, 60, 60, 60, 60, 60, 60, 60}));
+}

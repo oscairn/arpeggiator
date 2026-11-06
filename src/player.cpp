@@ -98,7 +98,8 @@ void Player::setSettings(const Settings& s) {
     settings_.slot = oldSlot;
     if (regrid) scheduleDirty_ = true;
     const int want = clampi(s.slot, 0, kSlots - 1);
-    if (want != oldSlot) {
+    if (want == oldSlot) pendingSlot_ = -1;  // a change undone before the bar line does not happen
+    else {
         if (s.changeTiming == ChangeTiming::Realtime || !running_) {
             settings_.slot = want;
             phrase_ = slots_[want];
