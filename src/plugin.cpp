@@ -637,8 +637,9 @@ const clap_plugin_params_t kParams = {
         const int i = paramIndex(id);
         ParamInfo p; char n[64];
         if (i < 0 || !paramInfo(i, p, n, sizeof n)) return false;
-        const int k = int(std::lround(v));
-        if (p.texts && k >= p.min && k <= p.max) std::snprintf(out, size, "%s", p.texts[k - int(p.min)]);
+        // A value past the range would index past the texts; NaN would round to anything.
+        const int k = int(std::lround(std::clamp(std::isfinite(v) ? v : p.def, p.min, p.max)));
+        if (p.texts) std::snprintf(out, size, "%s", p.texts[k - int(p.min)]);
         else if (id == pSlot) std::snprintf(out, size, "%d", k + 1);
         else if (id == pAccent && k == 0) std::snprintf(out, size, "Off");
         else if (id == pVelRate || id == pGateRate || id == pStrength || (id >= pSlotVel1 && id < pRecord)) std::snprintf(out, size, "%d%%", k);

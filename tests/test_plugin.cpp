@@ -492,6 +492,20 @@ int main(int argc, char** argv) {
         CHECK(ons(out) == std::vector<int>({60, 60}));
     }
 
+    {  // value_to_text with values outside a parameter's range
+        Instance in(factory);
+        char text[64], expect[64];
+        for (uint32_t i = 0; i < in.params->count(in.p); ++i) {
+            clap_param_info_t info;
+            CHECK(in.params->get_info(in.p, i, &info));
+            for (double v : {info.min_value - 1, info.max_value + 1, -1e9, 1e9, std::nan("")}) {
+                const double edge = v != v ? info.default_value : v < info.min_value ? info.min_value : info.max_value;
+                CHECK(in.params->value_to_text(in.p, info.id, edge, expect, sizeof expect));
+                CHECK(in.params->value_to_text(in.p, info.id, v, text, sizeof text) && !std::strcmp(text, expect));
+            }
+        }
+    }
+
     entry->deinit();
     dlclose(lib);
     std::printf("%s (%d failed checks)\n", failures ? "FAIL" : "ok", failures);
