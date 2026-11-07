@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <new>
 
 namespace arp {
 namespace {
@@ -329,6 +330,15 @@ void Player::panic(uint32_t frame) {
     startAt_ = -1;
     for (auto& p : pedal_) p = false;
     overflow_ = false;
+}
+
+void Player::reset() {
+    const Phrase* keep[kSlots];
+    std::copy(slots_, slots_ + kSlots, keep);
+    // Constructing in place resets every member, so none added later is forgotten; it does not allocate.
+    this->~Player();
+    new (this) Player();
+    for (int s = 0; s < kSlots; ++s) setPhrase(s, keep[s]);
 }
 
 void Player::playSfx(uint32_t frame, int channel, int velocity) {

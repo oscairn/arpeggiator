@@ -182,6 +182,18 @@ other channel messages pass through. Sustain (CC 64) latches the arp's keys whil
 is passed through only for keys the arp does not own. Builds for macOS and Linux ARM64 (and x86_64
 for CI).
 
+**Reset** (CLAP `reset`, which Oscairn calls before giving a used instance another Performance's
+state) takes effect at once and leaves the instance as a fresh one: the player starts again (clock,
+held keys and pedals, detected and host chords, random sequence, note identities, pending slot
+change), the transport and free-running beat are forgotten, and an armed recording stops, to re-arm
+from Record. Kept: parameters, phrases and their asset references, and a finished recording or
+pushed phrase already handed to the main thread. Notes still sounding are forgotten without
+note-offs; one wildcard `NOTE_CHOKE` at the start of the next block ends them downstream (a fresh
+instance sends none, so this is the one output that can differ, and only when reset finds notes
+sounding). The last block's transport position is kept: it is only read to notice a jump, which
+restarts a running phrase, and none runs after a reset. Tested against fresh instances in
+`tests/test_plugin.cpp` (reset case) and `tests/test_player.cpp` (`reset_plays_as_a_new_player…`).
+
 ### 4.2 Clock and transport
 
 The arp clock runs at the host tempo (`clap_event_transport.tempo`, 120 if absent), so it plays with

@@ -106,8 +106,11 @@ public:
 
     // The host jumped: a running phrase starts again (at the next Sync Quantize line, if set).
     void relocate(uint32_t frame);
-    // Ends every sounding note at `frame` and forgets held keys (stop, reset, choke all).
+    // Ends every sounding note at `frame` and forgets held keys (stop, choke all).
     void panic(uint32_t frame);
+    // Back to a new player's state, phrases kept: the settings, clock, chords, random sequence and note
+    // identities start again, and sounding notes are forgotten without note-offs (CLAP reset).
+    void reset();
     bool overflowed() const { return overflow_; }
     // The output identity of a played key passed through (matching the input id, or channel and key
     // when the id is -1); -1 if it is not sounding.

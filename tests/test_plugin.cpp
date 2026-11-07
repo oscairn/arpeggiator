@@ -9,6 +9,7 @@
 #include <oscairn-clap/beat.h>
 #include <oscairn-clap/harmony.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -503,6 +504,91 @@ int main(int argc, char** argv) {
                 CHECK(in.params->value_to_text(in.p, info.id, edge, expect, sizeof expect));
                 CHECK(in.params->value_to_text(in.p, info.id, v, text, sizeof text) && !std::strcmp(text, expect));
             }
+        }
+    }
+
+    {  // reset, then a state load (or none), plays exactly as a fresh instance with that state
+        const std::string kRandom = std::string(kUp).replace(std::string(kUp).find("select up"), 9, "select random");
+        auto saved = [&](const std::string& partial) {  // a whole state, as a host keeps it
+            Instance in(factory);
+            CHECK(load(in, partial));
+            Stream st;
+            CHECK(in.state->save(in.p, &st.out));
+            return st.data;
+        };
+        const std::string stateA = saved(stateWith(kRandom.c_str()) + "param 27 7\n");  // Sync Quantize 480
+        const std::string stateB = saved(stateWith(kUp, 2) + "param 28 2\n");          // the up phrase in slot 3, selected
+        // A used instance: the transport and the free-running beat play, the random walk and the arp clock run,
+        // and Record is armed with a note captured.
+        auto history = [&](Instance& in) {
+            CHECK(load(in, stateA));
+            in.p->on_main_thread(in.p);
+            in.beatOffset = 0.3;
+            OutEvents out;
+            in.run(out, {at(1000, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(1000, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2)),
+                         at(1000, note(CLAP_EVENT_NOTE_ON, 0, 67, 0.8, 3)), at(50000, note(CLAP_EVENT_NOTE_OFF, 0, 60, 0, 1)),
+                         at(50000, note(CLAP_EVENT_NOTE_OFF, 0, 64, 0, 2)), at(50000, note(CLAP_EVENT_NOTE_OFF, 0, 67, 0, 3)),
+                         at(72000, param(45, 1)), at(80000, note(CLAP_EVENT_NOTE_ON, 0, 62, 0.8, 4)),
+                         at(90000, note(CLAP_EVENT_NOTE_OFF, 0, 62, 0, 4))}, 96000, 256, 0, 1 << 30);
+            in.beatOffset = -1;
+        };
+        // Then: no free-running beat and the transport stopped, a chord on the arp's own clock; what it sends and
+        // the state it saves afterwards (a recording finished into a slot).
+        auto play = [&](Instance& in, std::vector<OutEvents::Note>& notes, std::string& saved) {
+            OutEvents out;
+            in.run(out, {at(201000, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(201000, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2)),
+                         at(201000, note(CLAP_EVENT_NOTE_ON, 0, 67, 0.8, 3)), at(260000, note(CLAP_EVENT_NOTE_OFF, 0, 60, 0, 1)),
+                         at(260000, note(CLAP_EVENT_NOTE_OFF, 0, 64, 0, 2)), at(260000, note(CLAP_EVENT_NOTE_OFF, 0, 67, 0, 3))},
+                   100000, 256, 200000);
+            in.p->on_main_thread(in.p);
+            notes = out.notes;
+            Stream st;
+            CHECK(in.state->save(in.p, &st.out));
+            saved = st.data;
+        };
+        auto same = [](const std::vector<OutEvents::Note>& a, const std::vector<OutEvents::Note>& b) {
+            if (a.size() != b.size()) return false;
+            for (size_t i = 0; i < a.size(); ++i)
+                if (a[i].type != b[i].type || a[i].frame != b[i].frame || a[i].key != b[i].key || a[i].channel != b[i].channel ||
+                    a[i].id != b[i].id || a[i].velocity != b[i].velocity) return false;
+            return true;
+        };
+        for (int c = 0; c < 4; ++c) {  // the same state again, another one, none, another one while deactivated
+            Instance used(factory, &kBeatHost);
+            history(used);
+            Stream before;
+            CHECK(used.state->save(used.p, &before.out));
+            const std::string next = c == 0 ? stateA : c == 2 ? before.data : stateB;
+            used.p->reset(used.p);
+            if (c == 3) { used.p->stop_processing(used.p); used.p->deactivate(used.p); }
+            if (c != 2) CHECK(load(used, next));
+            if (c == 3) { CHECK(used.p->activate(used.p, 48000, 1, 4096)); CHECK(used.p->start_processing(used.p)); }
+            used.p->on_main_thread(used.p);
+            Instance fresh(factory, &kBeatHost);
+            CHECK(load(fresh, next));
+            fresh.p->on_main_thread(fresh.p);
+            std::vector<OutEvents::Note> a, b;
+            std::string sa, sb;
+            play(used, a, sa);
+            play(fresh, b, sb);
+            CHECK(std::count_if(b.begin(), b.end(), [](const OutEvents::Note& n) { return n.type == CLAP_EVENT_NOTE_ON; }) > (c == 2 ? 2 : 4));  // with Record armed (case 2) the keys pass through
+            CHECK(same(a, b));
+            CHECK(sa == sb);
+            if (!same(a, b) || sa != sb) std::printf("  reset case %d differs from a fresh instance\n", c);
+        }
+        {  // reset with notes sounding ends them downstream at the next block's start; a note then plays at once
+            Instance in(factory);
+            CHECK(load(in, stateWith(kUp)));
+            in.p->on_main_thread(in.p);
+            OutEvents out;
+            in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1))}, 1000, 256);
+            in.p->reset(in.p);
+            CHECK(load(in, stateWith(kUp)));
+            in.p->on_main_thread(in.p);
+            OutEvents o2;
+            in.run(o2, {at(1000, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2))}, 256, 256, 1000);
+            CHECK(o2.notes.size() == 2 && o2.notes[0].type == CLAP_EVENT_NOTE_CHOKE && o2.notes[0].frame == 1000 &&
+                  o2.notes[1].type == CLAP_EVENT_NOTE_ON && o2.notes[1].key == 64 && o2.notes[1].frame == 1000);
         }
     }
 

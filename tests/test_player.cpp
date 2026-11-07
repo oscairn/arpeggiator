@@ -539,6 +539,60 @@ TEST(processing_never_allocates) {
     CHECK(c.events.size() > 100);
 }
 
+TEST(reset_plays_as_a_new_player_and_never_allocates) {
+    auto ph = phrase(steps("random", {}, 8), "length 960\nsfx 100 110 1 127 50");
+    auto other = phrase(steps("up", {}, 4), "length 480");
+    // Drives a player through `blocks` blocks of 256 frames: a triad and the host's chord, released half-way.
+    auto drive = [](Player& p, int blocks, Collect& c) {
+        Clock clock;
+        const uint64_t chord[2] = {(uint64_t(1) << 50) | (uint64_t(1) << 53) | (uint64_t(1) << 57), 0};
+        for (int i = 0; i < blocks; ++i) {
+            c.base = long(i) * 256;
+            p.begin(clock, 256, c);
+            if (i == 3) { p.setHarmony(0, chord); p.keyOn(10, 0, 60, 90, -1); p.keyOn(10, 0, 64, 90, -1); p.keyOn(10, 0, 67, 90, -1); }
+            if (i == blocks / 2) { p.keyOff(0, 0, 60, -1); p.keyOff(0, 0, 64, -1); p.keyOff(0, 0, 67, -1); }
+            p.end();
+        }
+    };
+    Settings s;
+    s.harmonyChord = true;
+    s.quantizeStrength = 50;
+    Player used;
+    used.setPhrase(0, ph.get());
+    used.setPhrase(1, other.get());
+    used.setSettings(s);
+    Collect ignored;
+    ignored.events.reserve(100000);
+    drive(used, 1000, ignored);
+    used.keyOn(0, 0, 72, 100, -1);  // left sounding: reset forgets it
+    g_allocations = 0;
+    g_countAllocations = true;
+    used.reset();
+    g_countAllocations = false;
+    if (g_allocationCounting) CHECK_EQ(g_allocations, 0);
+    Player fresh;
+    fresh.setPhrase(0, ph.get());
+    fresh.setPhrase(1, other.get());
+    CHECK(used.idle());
+    Settings t = s;
+    t.harmonyChord = false;
+    for (const Settings& next : {s, t}) {
+        Player a = used, b = fresh;
+        a.setSettings(next);
+        b.setSettings(next);
+        Collect ca, cb;
+        drive(a, 200, ca);
+        drive(b, 200, cb);
+        CHECK(cb.events.size() > 8);
+        CHECK(ca.events.size() == cb.events.size());
+        bool same = ca.events.size() == cb.events.size();
+        for (size_t i = 0; same && i < ca.events.size(); ++i)
+            same = std::tie(ca.events[i].type, ca.events[i].frame, ca.events[i].key, ca.events[i].velocity16, ca.events[i].inputId) ==
+                   std::tie(cb.events[i].type, cb.events[i].frame, cb.events[i].key, cb.events[i].velocity16, cb.events[i].inputId);
+        CHECK(same);
+    }
+}
+
 // Keys at times in seconds, rendered at `rate` with a host beat timeline (the free-running beat while
 // stopped, starting at beat 0.3); events as (seconds, type, key, velocity).
 static std::vector<std::tuple<double, int, int, int>> renderAt(double rate, const Phrase& ph, const Settings& s,
