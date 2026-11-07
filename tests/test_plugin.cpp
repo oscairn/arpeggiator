@@ -532,14 +532,15 @@ int main(int argc, char** argv) {
                          at(90000, note(CLAP_EVENT_NOTE_OFF, 0, 62, 0, 4))}, 96000, 256, 0, 1 << 30);
             in.beatOffset = -1;
         };
-        // Then: no free-running beat and the transport stopped, a chord on the arp's own clock; what it sends and
-        // the state it saves afterwards (a recording finished into a slot).
+        // Then: no free-running beat and the transport stopped, a chord on the arp's own clock (or, playing, on the
+        // host's beats); what it sends and the state it saves afterwards (a recording finished into a slot).
+        bool transportPlays = false;
         auto play = [&](Instance& in, std::vector<OutEvents::Note>& notes, std::string& saved) {
             OutEvents out;
             in.run(out, {at(201000, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(201000, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2)),
                          at(201000, note(CLAP_EVENT_NOTE_ON, 0, 67, 0.8, 3)), at(260000, note(CLAP_EVENT_NOTE_OFF, 0, 60, 0, 1)),
                          at(260000, note(CLAP_EVENT_NOTE_OFF, 0, 64, 0, 2)), at(260000, note(CLAP_EVENT_NOTE_OFF, 0, 67, 0, 3))},
-                   100000, 256, 200000);
+                   100000, 256, 200000, transportPlays ? 1 << 30 : -1);
             in.p->on_main_thread(in.p);
             notes = out.notes;
             Stream st;
@@ -553,12 +554,14 @@ int main(int argc, char** argv) {
                     a[i].id != b[i].id || a[i].velocity != b[i].velocity) return false;
             return true;
         };
-        for (int c = 0; c < 4; ++c) {  // the same state again, another one, none, another one while deactivated
+        for (int c = 0; c < 5; ++c) {  // the same state again, another one, none, another one while deactivated, the same
+                                       // with the transport playing, its beats jumping on from the history's
+            transportPlays = c == 4;
             Instance used(factory, &kBeatHost);
             history(used);
             Stream before;
             CHECK(used.state->save(used.p, &before.out));
-            const std::string next = c == 0 ? stateA : c == 2 ? before.data : stateB;
+            const std::string next = c == 0 || c == 4 ? stateA : c == 2 ? before.data : stateB;
             used.p->reset(used.p);
             if (c == 3) { used.p->stop_processing(used.p); used.p->deactivate(used.p); }
             if (c != 2) CHECK(load(used, next));
