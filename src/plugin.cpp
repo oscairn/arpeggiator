@@ -574,6 +574,12 @@ struct Plugin {
             if (in.size() > (64u << 20)) return false;
         }
         if (in.compare(0, 22, "oscairn-arpeggiator 1\n")) return false;
+        // Hand-overs from before the load belong to the state it replaces: a replaced phrase not yet freed would
+        // hold the new one back a block, and a pushed phrase or a finished recording would land on the new state.
+        for (int sl = 0; sl < arp::kSlots; ++sl) delete retired[sl].exchange(nullptr);
+        inboxSize.store(0, std::memory_order_release);
+        int finished = 2;
+        recordState.compare_exchange_strong(finished, 0, std::memory_order_acq_rel);
         size_t pos = 22;
         bool seen[arp::kSlots] = {};
         oscairn_asset_ref_t refs[arp::kSlots] = {};

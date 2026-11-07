@@ -193,6 +193,9 @@ instance sends none, so this is the one output that can differ, and only when re
 sounding). The last block's transport position is kept: it is only read to notice a jump, which
 restarts a running phrase, and none runs after a reset. Tested against fresh instances in
 `tests/test_plugin.cpp` (reset case) and `tests/test_player.cpp` (`reset_plays_as_a_new_player…`).
+A state load drops what was handed over before it, which belongs to the state it replaces: a
+replaced phrase not yet freed (it held the new one back until the next main-thread call), a pushed
+phrase and a finished recording (both would have landed on the new state).
 
 ### 4.2 Clock and transport
 

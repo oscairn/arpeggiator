@@ -576,6 +576,35 @@ int main(int argc, char** argv) {
             CHECK(sa == sb);
             if (!same(a, b) || sa != sb) std::printf("  reset case %d differs from a fresh instance\n", c);
         }
+        {  // a load drops what was handed over before it: a replaced phrase not yet freed, a pushed phrase, a finished recording
+            const std::string kDown = std::string(kUp).replace(std::string(kUp).find("select up"), 9, "select down");
+            std::vector<uint8_t> sx = {0xF0, 0x7D, 'O', 'P', 'H', 'R', 0};
+            sx.insert(sx.end(), kDown.begin(), kDown.end());
+            sx.push_back(0xF7);
+            clap_event_midi_sysex_t push{};
+            push.header = {sizeof push, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI_SYSEX, 0};
+            push.port_index = 0; push.buffer = sx.data(); push.size = uint32_t(sx.size());
+            Instance used(factory);
+            CHECK(load(used, stateWith(kUp)));
+            used.p->on_main_thread(used.p);
+            OutEvents o;
+            used.run(o, {}, 256, 256);
+            CHECK(load(used, stateWith(kDown.c_str())));  // replaces "up", which waits for the main thread to free it
+            used.run(o, {at(256, push), at(256, param(45, 1)), at(1000, note(CLAP_EVENT_NOTE_ON, 0, 62, 0.8, 1)),
+                         at(2000, note(CLAP_EVENT_NOTE_OFF, 0, 62, 0, 1))}, 100000, 256, 256);
+            double rec = 1;
+            CHECK(used.params->get_value(used.p, 45, &rec) && rec == 0);  // the recording finished
+            used.p->reset(used.p);
+            CHECK(load(used, stateA));  // no main-thread call before it plays: the host need not make one
+            Instance fresh(factory);
+            CHECK(load(fresh, stateA));
+            std::vector<OutEvents::Note> a, b;
+            std::string sa, sb;
+            play(used, a, sa);
+            play(fresh, b, sb);
+            CHECK(same(a, b));
+            CHECK(sa == sb);
+        }
         {  // reset with notes sounding ends them downstream at the next block's start; a note then plays at once
             Instance in(factory);
             CHECK(load(in, stateWith(kUp)));
