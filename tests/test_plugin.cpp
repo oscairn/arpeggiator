@@ -64,7 +64,7 @@ const oscairn_host_assets_t kAssets = {[](const clap_host_t*, oscairn_asset_ref_
     std::snprintf(path, cap, "%s", assetFile.c_str());
     if (!ref->sha256[0]) std::memset(ref->sha256, 'a', 64);  // the host fills in an unknown hash
     return true;
-}};
+}, nullptr, nullptr};  // library_root (draft 2) and create (draft 3): this host has only resolve
 const clap_host_t kAssetHost = {CLAP_VERSION, nullptr, "test", "oscairn", "", "1",
                                 [](const clap_host_t*, const char* id) -> const void* { return std::strcmp(id, OSCAIRN_EXT_ASSETS) ? nullptr : &kAssets; },
                                 [](const clap_host_t*) {}, [](const clap_host_t*) {}, [](const clap_host_t*) { ++callbacks; }};

@@ -320,7 +320,8 @@ calibration; gate length within 5 ms. A probe passes only if every note passes.
 
 RFC 0032 (Oscairn's side of the arpeggiator) was read at Oscairn commit 6396d9c and again at
 3b58efe, whose SDK headers (`beat.h`, `assets.h`, `harmony.h`) are vendored unchanged in
-`third_party/oscairn-clap` (commit in `upstream.json`). This plan agrees with it except where noted:
+`third_party/oscairn-clap` at oscairn/oscairn-clap 7b5c4e0 (commit in `upstream.json`). This plan
+agrees with it except where noted:
 
 - **Pushed phrases are parsed on the main thread** (resolves RFC 0032's open question and an
   earlier disagreement between this plan and the format document). The audio thread only copies the
