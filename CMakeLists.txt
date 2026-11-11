@@ -37,3 +37,11 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
     add_test(NAME midi_import COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_midi_to_phrase.py)
 endif()
+
+# Opens the plugin as Oscairn does with a temporary HOME (tests/privacy-check.sh): nothing may touch
+# the user's Documents, Desktop or Downloads, or create anything under HOME.
+add_executable(privacy_host tests/privacy-host.cpp)
+target_link_libraries(privacy_host PRIVATE clap_headers ${CMAKE_DL_LIBS})
+add_test(NAME privacy COMMAND ${CMAKE_SOURCE_DIR}/tests/privacy-check.sh $<TARGET_FILE:privacy_host>
+    $<TARGET_FILE:oscairn_arpeggiator> org.oscairn.arpeggiator
+    --library user=${CMAKE_SOURCE_DIR}/tests/privacy/library --state ${CMAKE_SOURCE_DIR}/tests/privacy/state)

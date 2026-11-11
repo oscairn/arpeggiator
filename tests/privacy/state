@@ -1,0 +1,14 @@
+oscairn-arpeggiator 1
+asset 0 user - 0123/My Up.ophr
+slot 0 150
+oscairn-phrase 1
+name "up"
+length 480
+track
+  select up
+  note 0 p0 v100 g60
+  note 120 p0 v100 g60
+  note 240 p0 v100 g60
+  note 360 p0 v100 g60
+end
+
