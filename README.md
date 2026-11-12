@@ -54,6 +54,24 @@ above the high one selects the outer ranges), Change Timing, Accent Threshold an
 Random SFX with its velocity settings, Fixed SD/BD, Sync Quantize, Slot, per-slot velocity and
 gate offsets, and Chord Source (Own keys, Harmony).
 
+## Releasing
+
+Bump the version in `CMakeLists.txt` and in the plugin descriptor (`src/plugin.cpp`; the release
+scripts read it there), commit, then tag and push the tag:
+
+```
+git tag oscairn-v0.1.5
+git push origin oscairn-v0.1.5
+```
+
+The [release workflow](.github/workflows/release.yml) builds the `.clap` for each platform, runs the
+tests and the device dependency checks, and creates a GitHub Release holding
+`oscairn-arpeggiator-<platform>.clap`, `licenses.tar.gz` and `oscairn-release.json`. The tag version
+must match the version in the source; the release fails if it does not. To try the workflow without
+a tag, run it manually (`workflow_dispatch`) with *dry run* checked: everything runs and the files
+land as a workflow artifact instead of a release. The repo-specific facts (names, ids, licence) live
+in `tools/release/release.conf`.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
