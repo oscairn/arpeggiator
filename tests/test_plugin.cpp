@@ -632,7 +632,7 @@ int main(int argc, char** argv) {
                 if (how == 0) in.p->reset(in.p);
                 else { in.p->stop_processing(in.p); in.p->deactivate(in.p); CHECK(in.p->activate(in.p, 48000, 1, 4096)); CHECK(in.p->start_processing(in.p)); }
                 OutEvents o2;
-                in.run(o2, {}, 2000, 256, 1000);
+                in.run(o2, {}, 5000, 256, 1000);  // past where the note would have ended on its own
                 CHECK(o2.notes.empty());
             }
         }
