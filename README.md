@@ -56,6 +56,9 @@ gate offsets, and Chord Source (Own keys, Harmony).
 
 ## Releasing
 
+A plugin's version changes whenever its shipped binary does, so every release (including the first
+workflow build after hand-built packages) bumps it.
+
 Bump the version in `CMakeLists.txt` and in the plugin descriptor (`src/plugin.cpp`; the release
 scripts read it there), commit, then tag and push the tag:
 
