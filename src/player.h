@@ -12,6 +12,10 @@ constexpr int kSlots = 8;
 constexpr int kMaxHeld = 32;
 constexpr int kMaxSounding = 256;
 constexpr int kMaxList = kMaxTemplate + kMaxHeld;
+// The tempo range the clock runs in.
+constexpr double kMinTempo = 20, kMaxTempo = 999;
+// A host tempo as the clock uses it: 120 for zero, negative or non-finite, else clamped to the range.
+inline double cleanTempo(double t) { return t > 0 && t == t && t - t == 0 ? (t < kMinTempo ? kMinTempo : t > kMaxTempo ? kMaxTempo : t) : 120; }
 
 enum class HoldMode : uint8_t { SyncOff, Off, On };
 enum class KeyMode : uint8_t { Sort, Thru, Direct, SortDirect, ThruDirect };

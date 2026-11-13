@@ -674,10 +674,39 @@ TEST(an_accent_started_mid_phrase_silences_normal_notes_for_a_quarter) {
     CHECK(onKeys(render(*ph, s, {on(0, 60, 110)}, 1900)) == v({90, 40, 41, 42, 43}));
 }
 
+TEST(b_tempo_is_sanitized_to_a_range) {
+    auto ph = phrase(steps("up", {}, 8));
+    auto run = [&](double tempo) {
+        Settings s;
+        Clock clock;
+        clock.tempo = tempo;
+        Player p;
+        p.setPhrase(0, ph.get());
+        p.setSettings(s);
+        Collect c;
+        for (int b = 0; b < 400; ++b) {
+            c.base = long(b) * 128;
+            p.begin(clock, 128, c);
+            if (b == 0) p.keyOn(0, 0, 60, 100, -1);
+            p.end();
+        }
+        return c.events.size() * 1000003u + (c.events.empty() ? 0 : size_t(c.events.back().frame));
+    };
+    const size_t at120 = run(120), lowest = run(kMinTempo), highest = run(kMaxTempo);
+    CHECK(lowest != at120 && highest != at120 && highest != lowest);
+    CHECK_EQ(run(std::nan("")), at120);
+    CHECK_EQ(run(0), at120);
+    CHECK_EQ(run(-90), at120);
+    CHECK_EQ(run(1e9), highest);
+    CHECK_EQ(run(1e300), highest);
+    CHECK_EQ(run(5), lowest);
+    CHECK(cleanTempo(INFINITY) == 120 && cleanTempo(-INFINITY) == 120);
+}
+
 TEST(work_per_block_stays_bounded_for_any_phrase_and_clock) {
     // Random phrases, settings, tempos, block sizes and keys: no block handles more than kMaxSteps
     // moments, so the audio thread is never held up. The first case alone needs far more than that: a
-    // one-tick loop at 30000 BPM, 3840 per quarter, 50 %.
+    // one-tick loop at 3840 per quarter, 50 %, at the fastest tempo.
     uint32_t r = 12345;
     auto rnd = [&](int n) { r ^= r << 13; r ^= r >> 17; r ^= r << 5; return int(r % uint32_t(n)); };
     const char* selects[] = {"index", "index-last", "index-first", "bounce", "bounce2", "cycle", "up", "down", "updown", "updown2", "random", "style"};

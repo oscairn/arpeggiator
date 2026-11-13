@@ -465,7 +465,7 @@ struct Plugin {
         clock.sampleRate = rate;
         if (b->transport) {
             const auto* t = b->transport;
-            if (t->flags & CLAP_TRANSPORT_HAS_TEMPO) clock.tempo = t->tempo;
+            if (t->flags & CLAP_TRANSPORT_HAS_TEMPO) clock.tempo = arp::cleanTempo(t->tempo);
             const bool nowPlaying = t->flags & CLAP_TRANSPORT_IS_PLAYING;
             if (nowPlaying && (t->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE)) {
                 clock.hasBeats = true;
@@ -485,7 +485,7 @@ struct Plugin {
                 const auto& e = *reinterpret_cast<const oscairn_event_beat_t*>(h);
                 hasFreeBeat = true;
                 freeBeat = double(e.beats) / CLAP_BEATTIME_FACTOR;
-                if (e.tempo > 0 && std::isfinite(e.tempo)) freeTempo = e.tempo;
+                if (e.tempo > 0 && std::isfinite(e.tempo)) freeTempo = arp::cleanTempo(e.tempo);
             }
         }
         const bool fromTransport = clock.hasBeats;

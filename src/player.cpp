@@ -236,7 +236,7 @@ void Player::begin(const Clock& clock, uint32_t frames, Sink& sink) {
     cursorFrame_ = 0;
     steps_ = 0;
     const double ppq = phrase_ ? phrase_->ppq : 480;
-    const double tempo = clock.tempo > 0 && std::isfinite(clock.tempo) ? clock.tempo : 120;
+    const double tempo = cleanTempo(clock.tempo);
     const double rate = clock.sampleRate > 0 && std::isfinite(clock.sampleRate) ? clock.sampleRate : 48000;
     beatsPerFrame_ = tempo / 60.0 / rate;
     ticksPerFrame_ = beatsPerFrame_ * ppq * 12.0 / kUnitTwelfths[settings_.unit];
