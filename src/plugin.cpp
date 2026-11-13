@@ -102,7 +102,7 @@ int paramIndex(clap_id id) { return id >= pSwitch && id < pEnd ? int(id - pSwitc
 const char* const kFeatures[] = {CLAP_PLUGIN_FEATURE_NOTE_EFFECT, nullptr};
 const clap_plugin_descriptor_t kDescriptor = {
     CLAP_VERSION, "org.oscairn.arpeggiator", "Oscairn Arpeggiator", "Oscairn", "https://github.com/oscairn/arpeggiator",
-    "", "", "0.1.6", "Phrase-based arpeggiator", kFeatures};
+    "", "", "0.1.7", "Phrase-based arpeggiator", kFeatures};
 
 constexpr uint8_t kSysexId[] = {0xF0, 0x7D, 'O', 'P', 'H', 'R'};  // non-commercial ID, then "OPHR"
 constexpr size_t kInboxSize = 1 << 18;
