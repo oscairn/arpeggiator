@@ -373,7 +373,15 @@ struct Plugin {
         clap_event_midi_t c = m;
         c.header.time = frame;
         c.port_index = 0;
-        if (!out->try_push(out, &c.header)) player.panic(frame);
+        send(c.header, out);  // refused: dropped, it holds no note
+    }
+
+    // Every event the plugin sends itself goes through here: its time inside the block and not before
+    // the last one sent; nothing at all in a block without frames.
+    bool send(clap_event_header_t& h, const clap_output_events_t* out) {
+        if (player.blockEmpty()) return false;
+        h.time = player.stamp(h.time);
+        return out->try_push(out, &h);
     }
 
     void noteEnd(const clap_event_note_t& in, uint32_t frame, const clap_output_events_t* out) {
@@ -381,7 +389,7 @@ struct Plugin {
         clap_event_note_t e = in;
         e.header.type = CLAP_EVENT_NOTE_END;
         e.header.time = frame;
-        out->try_push(out, &e.header);
+        send(e.header, out);
     }
 
     void recover(uint32_t frame, const clap_output_events_t* out) {
@@ -389,7 +397,7 @@ struct Plugin {
         clap_event_note_t e{};
         e.header = {sizeof e, frame, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_NOTE_CHOKE, 0};
         e.note_id = -1; e.port_index = 0; e.channel = -1; e.key = -1;
-        out->try_push(out, &e.header);
+        send(e.header, out);
     }
 
     void input(const clap_event_header_t* h, uint32_t frame, const clap_output_events_t* out) {
@@ -446,7 +454,7 @@ struct Plugin {
                 e.note_id = id;
                 e.port_index = 0;
                 e.header.time = frame;
-                if (!out->try_push(out, &e.header)) recover(frame, out);
+                send(e.header, out);
                 return;
             }
             case CLAP_EVENT_MIDI_SYSEX:
@@ -462,6 +470,7 @@ struct Plugin {
         player.setSettings(settings());
         arp::Clock clock;
         clock.sampleRate = rate;
+        bool stopped = false;
         if (b->transport) {
             const auto* t = b->transport;
             if (t->flags & CLAP_TRANSPORT_HAS_TEMPO) clock.tempo = arp::cleanTempo(t->tempo);
@@ -470,7 +479,7 @@ struct Plugin {
                 clock.hasBeats = true;
                 clock.beats = double(t->song_pos_beats) / CLAP_BEATTIME_FACTOR;
             }
-            if (transportSeen && playing && !nowPlaying) recover(0, b->out_events);
+            stopped = transportSeen && playing && !nowPlaying;
             playing = nowPlaying;
             transportSeen = true;
         }
@@ -504,6 +513,7 @@ struct Plugin {
         }
         player.setSettings(settings());
         player.begin(clock, b->frames_count, sink);
+        if (stopped) recover(0, b->out_events);
         if (fromTransport && lastHadBeats && std::fabs(clock.beats - (lastBeats + lastFrames * lastBeatsPerFrame)) > 1e-3)
             player.relocate(0);
         lastHadBeats = fromTransport;
@@ -515,10 +525,8 @@ struct Plugin {
             const clap_event_header_t* h = b->in_events->get(b->in_events, i);
             if (!h) continue;
             input(h, std::min(h->time, b->frames_count ? b->frames_count - 1 : 0), b->out_events);
-            if (player.overflowed()) recover(std::min(h->time, b->frames_count), b->out_events);
         }
         player.end();
-        if (player.overflowed()) recover(b->frames_count ? b->frames_count - 1 : 0, b->out_events);
         recordClock += recordTicksPerFrame * b->frames_count;
         if (recordState.load(std::memory_order_relaxed) == 1 && recorder.advance(recordClock)) {
             // Done: switch Record off, tell the host, and let the main thread make the phrase.
@@ -526,7 +534,7 @@ struct Plugin {
             clap_event_param_value_t pv{};
             pv.header = {sizeof pv, b->frames_count ? b->frames_count - 1 : 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
             pv.param_id = pRecord; pv.note_id = -1; pv.port_index = -1; pv.channel = -1; pv.key = -1; pv.value = 0;
-            b->out_events->try_push(b->out_events, &pv.header);
+            send(pv.header, b->out_events);
             recordState.store(2, std::memory_order_release);
             if (host && host->request_callback) host->request_callback(host);
         }

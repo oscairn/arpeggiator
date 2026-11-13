@@ -118,9 +118,25 @@ void Player::setSettings(const Settings& s) {
     }
 }
 
-bool Player::emit(const Output& o) {
-    if (overflow_ || !sink_) return false;
+uint32_t Player::stamp(uint32_t frame) {
+    lastFrame_ = std::min(std::max(frame, lastFrame_), blockFrames_ ? blockFrames_ - 1 : 0);
+    return lastFrame_;
+}
+
+int Player::soundingCount() const {
+    int n = 0;
+    for (const auto& s : sounding_) n += s.used;
+    return n;
+}
+
+// One refusal ends the block's output (no retries); a block without frames has none.
+bool Player::emit(Output o) {
+    if (overflow_ || !sink_ || !blockFrames_) return false;
+    // Note-offs always have room (see room()); everything else stops at the cap.
+    if (o.type != Output::NoteOff && !room(o.type == Output::NoteOn ? 2 : 1)) return false;
+    o.frame = stamp(o.frame);
     if (!sink_->push(o)) { overflow_ = true; return false; }
+    ++emitted_;
     return true;
 }
 
@@ -235,6 +251,9 @@ void Player::begin(const Clock& clock, uint32_t frames, Sink& sink) {
     blockFrames_ = frames;
     cursorFrame_ = 0;
     steps_ = 0;
+    emitted_ = 0;
+    lastFrame_ = 0;
+    overflow_ = false;
     const double ppq = phrase_ ? phrase_->ppq : 480;
     const double tempo = cleanTempo(clock.tempo);
     const double rate = clock.sampleRate > 0 && std::isfinite(clock.sampleRate) ? clock.sampleRate : 48000;
@@ -243,6 +262,9 @@ void Player::begin(const Clock& clock, uint32_t frames, Sink& sink) {
     hostHasBeats_ = clock.hasBeats && std::isfinite(clock.beats);
     hostBeats_ = clock.beats;
     if (scheduleDirty_) rebuildSchedule();
+    // Note-offs the host refused in an earlier block go out first.
+    for (int i = 0; i < kMaxSounding; ++i)
+        if (sounding_[i].used && sounding_[i].offTick < 0) noteOffAt(0, i);
 }
 
 void Player::end() {
@@ -254,8 +276,9 @@ void Player::end() {
 void Player::noteOffAt(uint32_t frame, int i) {
     Sounding& s = sounding_[i];
     if (!s.used) return;
-    s.used = false;
-    emit({frame, Output::NoteOff, s.channel, s.key, 0, 0, 0, s.id, s.inputId});
+    // The note sounds until the host has its note-off.
+    if (emit({frame, Output::NoteOff, s.channel, s.key, 0, 0, 0, s.id, s.inputId})) s.used = false;
+    else s.offTick = -1;
 }
 
 void Player::noteOn(uint32_t frame, int channel, int key, uint16_t velocity, double offTick, int32_t inputId, bool pass) {
@@ -270,12 +293,12 @@ void Player::noteOn(uint32_t frame, int channel, int key, uint16_t velocity, dou
     for (int i = 0; i < kMaxSounding; ++i) {
         if (sounding_[i].used) continue;
         if (nextId_ == std::numeric_limits<int32_t>::max()) nextId_ = 0;
-        sounding_[i] = {uint8_t(key), uint8_t(channel), nextId_++, inputId, offTick, true, pass, false};
         const uint8_t v7 = uint8_t(std::max(1, velocity >> 9));
-        emit({frame, Output::NoteOn, uint8_t(channel), uint8_t(key), v7, velocity, 0, sounding_[i].id, inputId});
+        // A note counts as sounding only once the host has its note-on.
+        if (!emit({frame, Output::NoteOn, uint8_t(channel), uint8_t(key), v7, velocity, 0, nextId_, inputId})) return;
+        sounding_[i] = {uint8_t(key), uint8_t(channel), nextId_++, inputId, offTick, true, pass, false};
         return;
     }
-    overflow_ = true;
 }
 
 void Player::startPhrase(uint32_t frame) {
@@ -329,7 +352,6 @@ void Player::panic(uint32_t frame) {
     accent_ = 0;
     startAt_ = -1;
     for (auto& p : pedal_) p = false;
-    overflow_ = false;
 }
 
 void Player::reset() {
@@ -746,6 +768,14 @@ void Player::playStyle(const Track& t, const Event& e, int channel, double clock
     sendNote(t, frame, channel, fold(key), vel, e.gate, clockTick);
 }
 
+// The most events a moment can need: an on and its off for each note of each event.
+int Player::momentCost(const Sched* s, int count, int which) const {
+    int cost = 0;
+    for (int i = which; i < count && s[i].tick == s[which].tick; ++i)
+        cost += 2 * (chordCount() + phrase_->tracks[s[i].track].templateCount) + 1;
+    return cost;
+}
+
 void Player::advanceTo(uint32_t frame) {
     if (frame > blockFrames_) frame = blockFrames_;
     while (!overflow_) {
@@ -779,6 +809,9 @@ void Player::advanceTo(uint32_t frame) {
         // Events belong to the first frame whose clock reaches them; that frame decides the block.
         const uint32_t f = frameAt(next);
         if (f >= frame) break;
+        // A moment that plays notes waits for the next block when this one is full (a block's first
+        // moment always plays, so a crowded one cannot starve); the position stays where it is.
+        if ((kind == 3 || kind == 5) && emitted_ && !room(momentCost(kind == 3 ? sched_ : accentSched_, kind == 3 ? schedCount_ : accentCount_, which))) break;
         // Safety net for a clock or phrase that leaves more to do than a block can afford.
         if (steps_ == kMaxSteps) { stopArp(f); break; }
         ++steps_;

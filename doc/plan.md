@@ -212,6 +212,25 @@ transport start on the same grid line. A process call without the event (a split
 position on at its tempo. In a host without the event, Sync Quantize waits for the next grid line
 of the instance's own clock (KD6). A transport start does not count as a song-position jump.
 
+### 4.2.1 Host-facing guarantees
+
+- The tempo the clock and the recorder use is the host's, 120 if zero, negative or non-finite, else
+  clamped to 20..999 BPM (`cleanTempo`).
+- A block carries at most 128 events from the player (`kMaxBlockEvents`), note-offs of sounding
+  notes included: notes and controllers stop being generated while events sent plus notes sounding
+  would pass the cap, and generation goes on from the same musical position in the next block, late
+  but not lost (a single crowded moment that needs more than the cap alone may drop notes). The
+  step loop is bounded by that cap and, for moments that send nothing, by `kMaxSteps`; no step
+  length is stretched.
+- Every event the plugin sends has a time in [0, frames) and not before the one sent before it,
+  generated and passed-through events alike. A block of no frames sends nothing; note-offs due wait
+  for the next block.
+- A note counts as sounding only once the host took its note-on. A refused event ends the block's
+  output (no retries); note-offs not taken go first in the next block. Overflow no longer sends a
+  note choke: the choke is sent only for a host choke-all, CC 120 or 123, and a transport stop.
+- Reset, deactivate and activate leave the plugin clean and send nothing about earlier notes (the
+  host ends them).
+
 ### 4.3 One instance per Part
 
 Each converted Part gets one arpeggiator instance at the front of its chain (RFC 0021: a Sound is a

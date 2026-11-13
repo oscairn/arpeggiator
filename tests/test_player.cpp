@@ -674,6 +674,63 @@ TEST(an_accent_started_mid_phrase_silences_normal_notes_for_a_quarter) {
     CHECK(onKeys(render(*ph, s, {on(0, 60, 110)}, 1900)) == v({90, 40, 41, 42, 43}));
 }
 
+// Records every event with its note identity, and accepts only `accept` per block (-1: all).
+struct Strict : Sink {
+    struct E { Output::Type type; uint32_t frame; int32_t id; int key; long block; };
+    std::vector<E> events;
+    int accept = -1, taken = 0;
+    long block = 0;
+    bool push(const Output& o) override {
+        if (accept >= 0 && taken >= accept) return false;
+        ++taken;
+        events.push_back({o.type, o.frame, o.id, o.key, block});
+        return true;
+    }
+};
+
+TEST(a_degenerate_phrase_is_capped_per_block_without_losing_notes_or_position) {
+    // A one-tick loop at 3840 per quarter, 999 BPM and unit 50 % (the fastest clock): ~10 passes per frame, far more than
+    // the cap per 128-frame block, with eight keys held.
+    auto ph = phrase("track\n  select up\n  note 0 p0 v100 g1\nend\n", "ppq 3840\nlength 1");
+    Settings s;
+    s.unit = 0;  // 50 %: the fastest clock
+    Player p;
+    p.setPhrase(0, ph.get());
+    p.setSettings(s);
+    Strict c;
+    Clock clock;
+    clock.tempo = 999;
+    const int keys[8] = {60, 62, 64, 65, 67, 69, 71, 72};
+    for (int b = 0; b < 700; ++b) {
+        c.block = b;
+        c.taken = 0;
+        p.begin(clock, 128, c);
+        if (b == 0) for (int k : keys) p.keyOn(0, 0, k, 100, -1);
+        if (b == 400) for (int k : keys) p.keyOff(0, 0, k, -1);
+        p.end();
+    }
+    std::vector<int> perBlock(700, 0);
+    for (const auto& e : c.events) ++perBlock[e.block];
+    CHECK(*std::max_element(perBlock.begin(), perBlock.end()) <= kMaxBlockEvents);
+    CHECK(*std::max_element(perBlock.begin(), perBlock.begin() + 400) >= kMaxBlockEvents - 20);  // it did hit the cap
+    long ons = 0, offs = 0;
+    std::vector<int> open;
+    for (const auto& e : c.events) {
+        if (e.type == Output::NoteOn) {
+            CHECK_EQ(e.key, keys[ons % 8]);  // none lost or repeated: the walk goes on where it was
+            ++ons; open.push_back(e.id);
+        } else {
+            ++offs;
+            auto it = std::find(open.begin(), open.end(), e.id);
+            CHECK(it != open.end());
+            if (it != open.end()) open.erase(it);
+        }
+    }
+    CHECK(ons > 400 * 40);
+    CHECK_EQ(ons, offs);
+    CHECK(open.empty());
+}
+
 TEST(b_tempo_is_sanitized_to_a_range) {
     auto ph = phrase(steps("up", {}, 8));
     auto run = [&](double tempo) {
@@ -701,6 +758,97 @@ TEST(b_tempo_is_sanitized_to_a_range) {
     CHECK_EQ(run(1e300), highest);
     CHECK_EQ(run(5), lowest);
     CHECK(cleanTempo(INFINITY) == 120 && cleanTempo(-INFINITY) == 120);
+}
+
+TEST(c_a_host_that_refuses_events_leaves_no_stuck_note_and_no_orphan_note_off) {
+    // A note every 500 frames lasting 400; the host refuses all but n events per block for three blocks
+    // of 128, then takes everything for three, over and over.
+    auto ph = phrase("track\n  select up\n  note 0 p0 v100 g8\n  note 10 p0 v100 g8\n  note 20 p0 v100 g8\n  note 30 p0 v100 g8\nend\n", "length 40");
+    for (int n = 0; n <= 3; ++n) {
+        Settings s;
+        Player p;
+        p.setPhrase(0, ph.get());
+        p.setSettings(s);
+        Strict c;
+        Clock clock;
+        for (int b = 0; b < 700; ++b) {
+            c.block = b;
+            c.taken = 0;
+            c.accept = b < 600 && b % 6 < 3 ? n : -1;
+            p.begin(clock, 128, c);
+            if (b == 0) { p.keyOn(0, 0, 60, 100, -1); p.keyOn(0, 0, 64, 100, -1); p.keyOn(0, 0, 67, 100, -1); }
+            if (b == 500) { p.keyOff(0, 0, 60, -1); p.keyOff(0, 0, 64, -1); p.keyOff(0, 0, 67, -1); }
+            p.end();
+        }
+        std::vector<int> open;
+        bool orphan = false;
+        long ons = 0;
+        for (const auto& e : c.events) {
+            if (e.type == Output::NoteOn) { open.push_back(e.id); ++ons; }
+            else {
+                auto it = std::find(open.begin(), open.end(), e.id);
+                orphan |= it == open.end();
+                if (it != open.end()) open.erase(it);
+            }
+        }
+        CHECK(ons > 100);
+        CHECK(!orphan);
+        CHECK(open.empty());
+        CHECK(p.idle());
+        if (open.size() || orphan || !p.idle()) std::printf("  accepting %d per block\n", n);
+    }
+}
+
+TEST(d_event_times_stay_inside_the_block_and_in_order) {
+    auto ph = phrase(steps("up", {}, 8));
+    Settings s;
+    Player p;
+    p.setPhrase(0, ph.get());
+    p.setSettings(s);
+    Strict c;
+    Clock clock;
+    for (int b = 0; b < 200; ++b) {
+        const uint32_t frames = b % 7 == 3 ? 0 : 128;
+        c.block = b;
+        c.taken = 0;
+        c.accept = b % 5 == 4 ? 1 : -1;
+        p.begin(clock, frames, c);
+        if (b == 1) { p.keyOn(frames ? 127 : 0, 0, 60, 100, -1); p.keyOn(0, 0, 64, 100, -1); }
+        if (b == 60) p.panic(0);
+        if (b == 61) { p.keyOn(5, 0, 62, 100, -1); p.keyOff(127, 0, 62, -1); }
+        p.end();
+        uint32_t last = 0;
+        bool empty = frames == 0;
+        for (const auto& e : c.events) {
+            if (e.block != b) continue;
+            CHECK(!empty);
+            CHECK(e.frame < 128);
+            CHECK(e.frame >= last);
+            last = e.frame;
+        }
+    }
+}
+
+TEST(d_a_block_of_no_frames_sends_nothing_and_the_note_off_waits) {
+    Settings s;
+    s.on = false;  // keys pass through
+    Player p;
+    Strict c;
+    Clock clock;
+    const uint32_t frames[4] = {128, 0, 0, 128};
+    for (int b = 0; b < 4; ++b) {
+        c.block = b;
+        p.begin(clock, frames[b], c);
+        if (b == 0) { p.setSettings(s); p.keyOn(10, 0, 60, 100, -1); }
+        if (b == 1) p.keyOff(0, 0, 60, -1);
+        p.end();
+        long n = 0;
+        for (const auto& e : c.events) n += e.block == b;
+        if (frames[b] == 0) CHECK_EQ(n, 0);
+    }
+    CHECK_EQ(c.events.size(), 2u);  // the on, then the off at the start of the next block with frames
+    CHECK(c.events.size() == 2 && c.events[1].type == Output::NoteOff && c.events[1].block == 3 && c.events[1].frame == 0);
+    CHECK(p.idle());
 }
 
 TEST(work_per_block_stays_bounded_for_any_phrase_and_clock) {

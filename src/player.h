@@ -12,7 +12,9 @@ constexpr int kSlots = 8;
 constexpr int kMaxHeld = 32;
 constexpr int kMaxSounding = 256;
 constexpr int kMaxList = kMaxTemplate + kMaxHeld;
-// The tempo range the clock runs in.
+// Output events one block may carry (note-offs of sounding notes included: generation stops while
+// events sent plus notes sounding would pass it), and the tempo range the clock runs in.
+constexpr int kMaxBlockEvents = 128;  // two arpeggiators can feed one instrument
 constexpr double kMinTempo = 20, kMaxTempo = 999;
 // A host tempo as the clock uses it: 120 for zero, negative or non-finite, else clamped to the range.
 inline double cleanTempo(double t) { return t > 0 && t == t && t - t == 0 ? (t < kMinTempo ? kMinTempo : t > kMaxTempo ? kMaxTempo : t) : 120; }
@@ -115,7 +117,12 @@ public:
     // Back to a new player's state, phrases kept: the settings, clock, chords, random sequence and note
     // identities start again, and sounding notes are forgotten without note-offs (CLAP reset).
     void reset();
+    // The host refused an event this block: nothing more is sent until the next block, and note-offs
+    // not delivered go first then (their notes stay sounding until the host takes them).
     bool overflowed() const { return overflow_; }
+    // An output time for a plugin's own event: not before the last one sent, inside the block.
+    uint32_t stamp(uint32_t frame);
+    bool blockEmpty() const { return blockFrames_ == 0; }
     // The output identity of a played key passed through (matching the input id, or channel and key
     // when the id is -1); -1 if it is not sounding.
     int32_t passThroughId(int32_t inputId, int channel, int key) const;
@@ -127,6 +134,7 @@ public:
 
 private:
     struct Held { uint8_t key, velocity, channel; uint32_t order; bool down, latched; };
+    // offTick < 0: its note-off was refused by the host and goes out first in the next block.
     struct Sounding { uint8_t key, channel; int32_t id, inputId; double offTick; bool used, passThrough, waitPedal; };
     struct Sched { double tick; int event; int track; };
     struct Entry { uint8_t key; uint8_t velocity; bool absolute; };
@@ -147,7 +155,10 @@ private:
     void playSfx(uint32_t frame, int channel, int velocity);
     void rebuildSchedule();
     void detectChord();
-    bool emit(const Output& o);
+    bool emit(Output o);
+    int soundingCount() const;
+    int momentCost(const Sched* s, int count, int which) const;
+    bool room(int events) const { return emitted_ + soundingCount() + events <= kMaxBlockEvents; }
     bool inNoteRange(int key) const;
     bool inVelocityRange(int velocity) const;
     double tickAt(uint32_t frame) const { return clockTick_ + ticksPerFrame_ * frame; }
@@ -192,6 +203,8 @@ private:
     uint32_t blockFrames_ = 0;
     uint32_t cursorFrame_ = 0;
     uint32_t steps_ = 0;         // moments handled in this block
+    int emitted_ = 0;            // events sent this block
+    uint32_t lastFrame_ = 0;     // time of the last one
     double origin_ = 0;          // clock tick of the current pass's start
     double startAt_ = -1;        // a start waiting for its quantize line
     double nextPos_ = 0;         // phrase position still to play in this pass

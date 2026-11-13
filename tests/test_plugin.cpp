@@ -81,8 +81,15 @@ struct OutEvents {
     struct Note { int type; long frame; int key; int channel; int id; double velocity; };
     std::vector<Note> notes;
     long base = 0;
+    // Every event's time is checked against the block and the one before it; `limit` events are taken per block (-1: all).
+    uint32_t frames = UINT32_MAX, last = 0;
+    int limit = -1, taken = 0, bad = 0, all = 0;
     clap_output_events_t api{this, [](const clap_output_events_t* l, const clap_event_header_t* h) {
         auto* o = static_cast<OutEvents*>(l->ctx);
+        if (h->time >= o->frames || h->time < o->last) ++o->bad;  // counted even when refused
+        if (o->limit >= 0 && o->taken >= o->limit) return false;
+        ++o->taken; ++o->all;
+        o->last = h->time;
         if (h->type == CLAP_EVENT_NOTE_EXPRESSION) {
             const auto* n = reinterpret_cast<const clap_event_note_expression_t*>(h);
             o->notes.push_back({h->type, o->base + h->time, n->key, n->channel, n->note_id, n->value});
@@ -149,6 +156,7 @@ struct Instance {
                 ++k;
             }
             out.base = pos;
+            out.frames = n; out.last = 0; out.taken = 0;
             clap_event_transport_t tr{};
             tr.header = {sizeof tr, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_TRANSPORT, 0};
             tr.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | (pos < playingUntil ? CLAP_TRANSPORT_IS_PLAYING : 0);
@@ -608,7 +616,7 @@ int main(int argc, char** argv) {
             CHECK(same(a, b));
             CHECK(sa == sb);
         }
-        {  // reset with notes sounding sends nothing about them (the host ends them); a note then plays at once
+        {  // reset with notes sounding ends them downstream at the next block's start; a note then plays at once
             Instance in(factory);
             CHECK(load(in, stateWith(kUp)));
             in.p->on_main_thread(in.p);
@@ -628,13 +636,54 @@ int main(int argc, char** argv) {
                 in.p->on_main_thread(in.p);
                 OutEvents out;
                 in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1))}, 1000, 256);
-                CHECK(!out.notes.empty());
+                CHECK(out.all > 0);
                 if (how == 0) in.p->reset(in.p);
                 else { in.p->stop_processing(in.p); in.p->deactivate(in.p); CHECK(in.p->activate(in.p, 48000, 1, 4096)); CHECK(in.p->start_processing(in.p)); }
                 OutEvents o2;
                 in.run(o2, {}, 5000, 256, 1000);  // past where the note would have ended on its own
-                CHECK(o2.notes.empty());
+                CHECK((o2.all) == (0));
             }
+        }
+        {  // d: times in [0, frames) and not decreasing through CC 120 and 123, a transport stop and start, refusals and a block of no frames
+            const char* kFast = "oscairn-phrase 1\nlength 40\ntrack\n  select up\n  note 0 p0 v100 g8\n  note 10 p0 v100 g8\n  note 20 p0 v100 g8\n  note 30 p0 v100 g8\nend\n";
+            Instance in(factory);
+            CHECK(load(in, stateWith(kFast)));
+            in.p->on_main_thread(in.p);
+            OutEvents out;
+            std::vector<std::pair<long, std::vector<uint8_t>>> ev = {
+                at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(10, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2)),
+                at(1030, midi(0xB0, 123, 0)), at(1500, note(CLAP_EVENT_NOTE_ON, 0, 67, 0.8, 3)),
+                at(2300, midi(0xB0, 120, 0)), at(2301, midi(0xB0, 7, 100)), at(2500, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 4)),
+                at(4100, note(CLAP_EVENT_NOTE_OFF, 0, 60, 0, 4)), at(4101, note(CLAP_EVENT_NOTE_OFF, 0, 67, 0, 3))};
+            in.run(out, ev, 3000, 256, 0, 2900);  // the transport stops at 2900
+            out.limit = 1;
+            in.run(out, {}, 600, 256, 3000, 3600);  // plays again, and the host takes one event per block
+            out.limit = -1;
+            clap_process_t z{};
+            InEvents none;
+            z.frames_count = 0; z.in_events = &none.api; z.out_events = &out.api;
+            out.frames = 0;
+            const int before = out.all;
+            in.p->process(in.p, &z);
+            CHECK((out.all) == (before));  // a block of no frames sends nothing
+            in.run(out, {}, 1500, 256, 3600, 5100);
+            CHECK((out.bad) == (0));
+            {  // a host event at time == frames_count (out of spec) and a host that refuses events: nothing sent outside [0, frames)
+                Instance off(factory);
+                OutEvents o3;
+                o3.limit = 1;
+                std::vector<std::pair<long, std::vector<uint8_t>>> evs = {at(0, param(1, 0)), at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)),
+                                                                           at(5, note(CLAP_EVENT_NOTE_ON, 0, 62, 0.8, 2)), at(256, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 3))};
+                off.run(o3, evs, 255, 256);
+                InEvents late;
+                late.add(note(CLAP_EVENT_NOTE_ON, 256, 65, 0.8, 4));
+                clap_process_t pr{};
+                pr.frames_count = 256; pr.in_events = &late.api; pr.out_events = &o3.api;
+                o3.frames = 256; o3.last = 0; o3.taken = 0; o3.limit = 0;
+                off.p->process(off.p, &pr);
+                CHECK((o3.bad) == (0));
+            }
+            CHECK(out.all > 20);
         }
     }
 
