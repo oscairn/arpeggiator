@@ -608,7 +608,7 @@ int main(int argc, char** argv) {
             CHECK(same(a, b));
             CHECK(sa == sb);
         }
-        {  // reset with notes sounding ends them downstream at the next block's start; a note then plays at once
+        {  // reset with notes sounding sends nothing about them (the host ends them); a note then plays at once
             Instance in(factory);
             CHECK(load(in, stateWith(kUp)));
             in.p->on_main_thread(in.p);
@@ -619,8 +619,22 @@ int main(int argc, char** argv) {
             in.p->on_main_thread(in.p);
             OutEvents o2;
             in.run(o2, {at(1000, note(CLAP_EVENT_NOTE_ON, 0, 64, 0.8, 2))}, 256, 256, 1000);
-            CHECK(o2.notes.size() == 2 && o2.notes[0].type == CLAP_EVENT_NOTE_CHOKE && o2.notes[0].frame == 1000 &&
-                  o2.notes[1].type == CLAP_EVENT_NOTE_ON && o2.notes[1].key == 64 && o2.notes[1].frame == 1000);
+            CHECK(o2.notes.size() == 1 && o2.notes[0].type == CLAP_EVENT_NOTE_ON && o2.notes[0].key == 64 && o2.notes[0].frame == 1000);
+        }
+        {  // e: after a reset, and after a deactivate and activate, nothing is sent about the notes from before
+            for (int how = 0; how < 2; ++how) {
+                Instance in(factory);
+                CHECK(load(in, stateWith(kUp)));
+                in.p->on_main_thread(in.p);
+                OutEvents out;
+                in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1))}, 1000, 256);
+                CHECK(!out.notes.empty());
+                if (how == 0) in.p->reset(in.p);
+                else { in.p->stop_processing(in.p); in.p->deactivate(in.p); CHECK(in.p->activate(in.p, 48000, 1, 4096)); CHECK(in.p->start_processing(in.p)); }
+                OutEvents o2;
+                in.run(o2, {}, 2000, 256, 1000);
+                CHECK(o2.notes.empty());
+            }
         }
     }
 

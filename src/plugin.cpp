@@ -182,12 +182,14 @@ struct Plugin {
             return true;
         };
         api.destroy = [](const clap_plugin_t* p) { delete &of(p); };
+        // The host ends every note across a deactivation as it does at a reset: start clean, say nothing of earlier notes.
         api.activate = [](const clap_plugin_t* p, double r, uint32_t, uint32_t) {
             if (!(r > 0) || !std::isfinite(r)) return false;
+            of(p).reset();
             of(p).rate = r;
             return true;
         };
-        api.deactivate = [](const clap_plugin_t*) {};
+        api.deactivate = [](const clap_plugin_t* p) { of(p).reset(); };
         api.start_processing = [](const clap_plugin_t*) { return true; };
         api.stop_processing = [](const clap_plugin_t*) {};
         api.reset = [](const clap_plugin_t* p) { of(p).reset(); };
@@ -202,14 +204,13 @@ struct Plugin {
             delete retired[s].exchange(nullptr);
         }
     }
-    bool chokePending = false;  // reset forgot sounding notes: end them downstream in the next block
-
     // Audio thread: CLAP reset. Back to a fresh instance's state at once except the parameters and phrases
     // (and a finished recording or a push the main thread already holds); a note in the next block plays as
-    // on a fresh instance with the same state. Other members are set again before they are next read.
+    // on a fresh instance with the same state. The host ends the notes from before, so nothing is sent
+    // about them. Other members are set again before they are next read.
     void reset() {
-        chokePending = !player.idle();
         player.reset();
+        lastHadBeats = false;
         int recording = 1;
         recordState.compare_exchange_strong(recording, 0, std::memory_order_acq_rel);  // Record re-arms from its parameter
         transportSeen = hasFreeBeat = false;
@@ -457,8 +458,6 @@ struct Plugin {
 
     clap_process_status process(const clap_process_t* b) {
         sink.out = b->out_events;
-        if (chokePending) recover(0, b->out_events);
-        chokePending = false;
         takePhrases();
         player.setSettings(settings());
         arp::Clock clock;
