@@ -354,6 +354,20 @@ void Player::panic(uint32_t frame) {
     for (auto& p : pedal_) p = false;
 }
 
+// STOP: the arpeggio ends and its latch and pedal go; its notes are released. Played keys that pass
+// through stay (only those the pedal held for the arpeggio's sake are released); Hold stays as set.
+void Player::stop(uint32_t frame) {
+    advanceTo(frame);
+    stopArp(frame);
+    for (int i = 0; i < kMaxSounding; ++i)
+        if (sounding_[i].used && sounding_[i].waitPedal) noteOffAt(frame, i);
+    heldCount_ = 0;
+    for (auto& c : down_) for (auto& k : c) k = false;
+    downCount_ = 0;
+    toggledOn_ = false;
+    for (auto& p : pedal_) p = false;
+}
+
 void Player::reset() {
     const Phrase* keep[kSlots];
     std::copy(slots_, slots_ + kSlots, keep);

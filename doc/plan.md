@@ -202,8 +202,7 @@ phrase and a finished recording (both would have landed on the new state).
 The arp clock runs at the host tempo (`clap_event_transport.tempo`, 120 if absent), so it plays with
 the transport stopped, as the reference does. Sync Quantize aligns starts to the host beat timeline
 while the transport plays (RFC 0012: Oscairn's transport, internal or following MIDI clock or
-Link), so every part's arpeggiator lines up. A playing-to-stopped transport transition ends all
-sounding notes. Unit Multiply scales the arp clock against the tempo.
+Link), so every part's arpeggiator lines up. A playing-to-stopped transport transition is a STOP (below). Unit Multiply scales the arp clock against the tempo.
 
 **While the transport is stopped** the plugin reads the host's free-running beat
 (`oscairn.beat`, RFC 0032 step 3: an event at sample 0 of each block, asked for through CLAP's event
@@ -227,7 +226,16 @@ of the instance's own clock (KD6). A transport start does not count as a song-po
   for the next block.
 - A note counts as sounding only once the host took its note-on. A refused event ends the block's
   output (no retries); note-offs not taken go first in the next block. Overflow no longer sends a
-  note choke: the choke is sent only for a host choke-all, CC 120 or 123, and a transport stop.
+  note choke: the choke is sent only for a host choke-all and CC 120.
+- STOP (the transport going from playing to stopped, and CC 123 on any channel) releases the notes the
+  arpeggio sounds with note-offs, clears the held-key latch, the pedal state and the toggle state, and
+  keeps the Hold parameter; the phrase starts again on the next key. It sends no `NOTE_CHOKE` and does
+  not forward CC 123, so the instrument releases the notes into their own release. Played keys that pass
+  through unarpeggiated stay as they are (those only the pedal held are released). A STOP with nothing
+  running sends nothing; a transport stop and a CC 123 in one block are one STOP, and events after the
+  STOP's frame start afresh.
+- PANIC (a `NOTE_CHOKE` with key or channel -1, and CC 120) ends every sounding note, passed-through ones
+  included, and sends one all-notes `NOTE_CHOKE` downstream; CC 120 is also passed on.
 - Reset, deactivate and activate leave the plugin clean and send nothing about earlier notes (the
   host ends them).
 

@@ -83,13 +83,14 @@ struct OutEvents {
     long base = 0;
     // Every event's time is checked against the block and the one before it; `limit` events are taken per block (-1: all).
     uint32_t frames = UINT32_MAX, last = 0;
-    int limit = -1, taken = 0, bad = 0, all = 0;
+    int limit = -1, taken = 0, bad = 0, all = 0, midis = 0;
     clap_output_events_t api{this, [](const clap_output_events_t* l, const clap_event_header_t* h) {
         auto* o = static_cast<OutEvents*>(l->ctx);
         if (h->time >= o->frames || h->time < o->last) ++o->bad;  // counted even when refused
         if (o->limit >= 0 && o->taken >= o->limit) return false;
         ++o->taken; ++o->all;
         o->last = h->time;
+        if (h->type == CLAP_EVENT_MIDI) ++o->midis;
         if (h->type == CLAP_EVENT_NOTE_EXPRESSION) {
             const auto* n = reinterpret_cast<const clap_event_note_expression_t*>(h);
             o->notes.push_back({h->type, o->base + h->time, n->key, n->channel, n->note_id, n->value});
@@ -361,16 +362,42 @@ int main(int argc, char** argv) {
         CHECK(ons(o2) == std::vector<int>({84, 84, 84, 84}));
     }
 
-    {  // the transport stopping ends what sounds
+    {  // the transport stopping releases what the arpeggio sounds: note-offs, no choke, nothing more until a key
         Instance in(factory);
         CHECK(load(in, stateWith(kUp)));
         in.p->on_main_thread(in.p);
         OutEvents out;
         in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1))}, 12000, 256, 0, 6000);
-        int chokes = 0;
-        long when = -1;
-        for (auto& n : out.notes) if (n.type == CLAP_EVENT_NOTE_CHOKE) { ++chokes; when = n.frame; }
-        CHECK(chokes == 1 && when >= 6000 && when < 6000 + 256);
+        int chokes = 0, ons = 0, offs = 0, late = 0;
+        for (auto& n : out.notes) {
+            chokes += n.type == CLAP_EVENT_NOTE_CHOKE;
+            ons += n.type == CLAP_EVENT_NOTE_ON;
+            offs += n.type == CLAP_EVENT_NOTE_OFF;
+            late += n.type == CLAP_EVENT_NOTE_ON && n.frame >= 6000 + 256;
+        }
+        CHECK(chokes == 0 && ons > 0 && ons == offs && late == 0);
+    }
+
+    {  // CC 123 is STOP on any channel (no choke, not forwarded), also in a block where the transport stops; CC 120 stays a panic
+        for (int mode = 0; mode < 3; ++mode) {
+            Instance in(factory);
+            CHECK(load(in, stateWith(kUp)));
+            in.p->on_main_thread(in.p);
+            OutEvents out;
+            const uint8_t cc = mode == 2 ? 120 : 123;
+            // mode 1: the transport stops in the same block as the CC (at 6000, in the block starting at 5888)
+            in.run(out, {at(0, note(CLAP_EVENT_NOTE_ON, 0, 60, 0.8, 1)), at(6000, midi(uint8_t(0xB0 | (mode == 0 ? 5 : 0)), cc, 0))}, 12000, 256, 0, mode == 1 ? 6100 : -1);
+            int chokes = 0, ons = 0, offs = 0, late = 0;
+            for (auto& n : out.notes) {
+                chokes += n.type == CLAP_EVENT_NOTE_CHOKE;
+                ons += n.type == CLAP_EVENT_NOTE_ON;
+                offs += n.type == CLAP_EVENT_NOTE_OFF;
+                late += n.type == CLAP_EVENT_NOTE_ON && n.frame >= 6000 + 256;
+            }
+            CHECK(ons > 0 && ons == offs && late == 0);
+            CHECK(chokes == (mode == 2 ? 1 : 0));
+            CHECK(out.midis == (mode == 2 ? 1 : 0));  // CC 120 goes on downstream, CC 123 does not
+        }
     }
 
     {  // record mode: one bar of played notes becomes the selected slot's phrase

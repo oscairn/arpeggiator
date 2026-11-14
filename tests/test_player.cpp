@@ -829,6 +829,161 @@ TEST(d_event_times_stay_inside_the_block_and_in_order) {
     }
 }
 
+// Drives `blocks` blocks of 128 frames; `at(block, p)` runs inside each block, after begin.
+template <class F> void drive(Player& p, Strict& c, int blocks, F at, int first = 0) {
+    Clock clock;
+    for (int b = first; b < first + blocks; ++b) { c.block = b; p.begin(clock, 128, c); at(b); p.end(); }
+}
+long countIn(const Strict& c, long from, long to, Output::Type type) {
+    long n = 0;
+    for (const auto& e : c.events) n += e.block >= from && e.block < to && e.type == type;
+    return n;
+}
+
+TEST(stop_releases_the_arpeggio_clears_the_latch_and_keeps_hold) {
+    auto ph = phrase(steps("up", {}, 4));
+    Settings s;
+    s.hold = HoldMode::On;
+    Player p;
+    p.setPhrase(0, ph.get());
+    p.setSettings(s);
+    Strict c;
+    drive(p, c, 400, [&](int b) {
+        if (b == 1) { p.keyOn(0, 0, 60, 100, -1); p.keyOff(5, 0, 60, -1); }  // latched
+        if (b == 300) p.stop(7);
+    });
+    CHECK(countIn(c, 0, 300, Output::NoteOn) > 2);
+    CHECK_EQ(countIn(c, 300, 400, Output::NoteOn), 0);  // nothing after STOP until a key
+    long offsAtStop = 0;
+    for (const auto& e : c.events) offsAtStop += e.block == 300 && e.type == Output::NoteOff && e.frame == 7;
+    CHECK(offsAtStop <= 1);
+    const long ons = countIn(c, 0, 400, Output::NoteOn);
+    CHECK_EQ(countIn(c, 0, 400, Output::NoteOff), ons);
+    CHECK(p.idle());
+    // Hold is still On: the next key latches again and starts from the top of the phrase.
+    drive(p, c, 300, [&](int b) {
+        if (b == 401) { p.keyOn(0, 0, 62, 100, -1); p.keyOff(5, 0, 62, -1); }
+    }, 400);
+    CHECK(countIn(c, 400, 700, Output::NoteOn) > 2);
+    long first = -1;
+    for (const auto& e : c.events) if (e.block >= 400 && e.type == Output::NoteOn) { first = e.key; break; }
+    CHECK_EQ(first, 62);
+}
+
+TEST(stop_with_nothing_running_sends_nothing_and_twice_changes_nothing) {
+    auto ph = phrase(steps("up", {}, 4));
+    Settings s;
+    Player p;
+    p.setPhrase(0, ph.get());
+    p.setSettings(s);
+    Strict c;
+    drive(p, c, 3, [&](int) { p.stop(0); p.stop(0); });
+    CHECK(c.events.empty());
+    drive(p, c, 10, [&](int b) { if (b == 3) p.keyOn(0, 0, 60, 100, -1); if (b == 6) { p.stop(3); p.stop(3); } }, 3);
+    CHECK_EQ(countIn(c, 0, 13, Output::NoteOff), countIn(c, 0, 13, Output::NoteOn));
+    CHECK_EQ(countIn(c, 7, 13, Output::NoteOn), 0);
+}
+
+TEST(a_note_between_its_on_and_off_gets_one_off_at_the_stop_frame) {
+    auto ph = phrase("track\n  select up\n  note 0 p0 v100 g8000\nend\n", "length 1920");
+    Settings s;
+    Player p;
+    p.setPhrase(0, ph.get());
+    p.setSettings(s);
+    Strict c;
+    drive(p, c, 4, [&](int b) { if (b == 0) p.keyOn(0, 0, 60, 100, -1); if (b == 2) p.stop(50); });
+    CHECK_EQ(countIn(c, 0, 4, Output::NoteOn), 1);
+    CHECK_EQ(countIn(c, 0, 4, Output::NoteOff), 1);
+    for (const auto& e : c.events) if (e.type == Output::NoteOff) CHECK(e.block == 2 && e.frame == 50);
+}
+
+TEST(a_key_after_the_stop_frame_starts_afresh_and_one_before_it_is_stopped) {
+    auto ph = phrase("track\n  select up\n  note 0 p0 v100 g8000\nend\n", "length 1920");
+    Settings s;
+    Player p;
+    p.setPhrase(0, ph.get());
+    p.setSettings(s);
+    Strict c;
+    drive(p, c, 3, [&](int b) { if (b == 1) { p.keyOn(10, 0, 60, 100, -1); p.stop(20); p.keyOn(30, 0, 64, 100, -1); } });
+    CHECK_EQ(countIn(c, 0, 3, Output::NoteOn), 2);
+    CHECK_EQ(countIn(c, 0, 3, Output::NoteOff), 1);  // the first, at 20; the second is still sounding
+    drive(p, c, 1, [&](int) { p.stop(0); }, 3);
+    CHECK_EQ(countIn(c, 0, 4, Output::NoteOff), 2);
+}
+
+TEST(stop_leaves_played_keys_that_pass_through_and_releases_those_the_pedal_holds) {
+    Settings s;
+    s.on = false;  // keys pass through
+    Player p;
+    p.setSettings(s);
+    Strict c;
+    drive(p, c, 3, [&](int b) {
+        if (b == 0) { p.keyOn(0, 0, 60, 100, -1); p.sustain(1, 0, true); p.keyOn(2, 0, 64, 100, -1); p.keyOff(3, 0, 64, -1); }
+        if (b == 1) p.stop(9);
+        if (b == 2) { p.sustain(0, 0, false); }
+    });
+    // 64 was held by the pedal: released at the stop frame; 60 is held by the finger and untouched.
+    CHECK_EQ(countIn(c, 0, 3, Output::NoteOff), 1);
+    for (const auto& e : c.events) if (e.type == Output::NoteOff) CHECK(e.key == 64 && e.block == 1 && e.frame == 9);
+    drive(p, c, 1, [&](int) { p.keyOff(0, 0, 60, -1); }, 3);
+    CHECK_EQ(countIn(c, 0, 4, Output::NoteOff), 2);
+    // PANIC still ends them all.
+    Player q;
+    q.setSettings(s);
+    Strict d;
+    drive(q, d, 2, [&](int b) { if (b == 0) q.keyOn(0, 0, 60, 100, -1); if (b == 1) q.panic(4); });
+    CHECK_EQ(countIn(d, 0, 2, Output::NoteOff), 1);
+}
+
+TEST(d_every_note_on_has_one_note_off_through_stops_and_panics) {
+    uint32_t r = 777;
+    auto rnd = [&](int n) { r ^= r << 13; r ^= r >> 17; r ^= r << 5; return int(r % uint32_t(n)); };
+    auto ph = phrase(steps("up", {}, 6));
+    for (int round = 0; round < 40; ++round) {
+        Settings s;
+        s.on = rnd(5) != 0;
+        s.hold = HoldMode(rnd(3));
+        Player p;
+        p.setPhrase(0, ph.get());
+        p.setSettings(s);
+        Strict c;
+        bool keys[4] = {}, pedalDown = false;
+        bool quiet_ = false;
+        std::vector<int> quiet;
+        drive(p, c, 300, [&](int b) {
+            bool wasQuiet = quiet_;
+            if (rnd(6) == 0) {
+                const int k = rnd(4);
+                if (keys[k]) p.keyOff(rnd(128), 0, 60 + k, -1); else p.keyOn(rnd(128), 0, 60 + k, 100, -1);
+                keys[k] = !keys[k];
+                if (keys[k]) quiet_ = wasQuiet = false;
+            }
+            if (rnd(30) == 0) { pedalDown = !pedalDown; p.sustain(rnd(128), 0, pedalDown); }
+            if (rnd(40) == 0) { Settings t = s; t.hold = HoldMode(rnd(3)); p.setSettings(t); }
+            if (rnd(25) == 0) { p.stop(rnd(128)); quiet_ = true; }
+            else if (rnd(60) == 0) { p.panic(rnd(128)); for (auto& k : keys) k = false; quiet_ = true; }
+            if (wasQuiet) quiet.push_back(b);
+        });
+        // Release everything still held, then every note must be closed.
+        drive(p, c, 3, [&](int b) {
+            if (b == 300) { for (int k = 0; k < 4; ++k) if (keys[k]) p.keyOff(0, 0, 60 + k, -1); p.sustain(0, 0, false); p.stop(0); }
+        }, 300);
+        std::vector<int> open;
+        bool orphan = false;
+        for (const auto& e : c.events) {
+            if (e.type == Output::NoteOn) open.push_back(e.id);
+            else {
+                auto it = std::find(open.begin(), open.end(), e.id);
+                orphan |= it == open.end();
+                if (it != open.end()) open.erase(it);
+            }
+        }
+        CHECK(!orphan);
+        CHECK(open.empty());
+        for (int b : quiet) CHECK_EQ(countIn(c, b, b + 1, Output::NoteOn), 0);
+    }
+}
+
 TEST(d_a_block_of_no_frames_sends_nothing_and_the_note_off_waits) {
     Settings s;
     s.on = false;  // keys pass through

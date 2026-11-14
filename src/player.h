@@ -112,8 +112,11 @@ public:
 
     // The host jumped: a running phrase starts again (at the next Sync Quantize line, if set).
     void relocate(uint32_t frame);
-    // Ends every sounding note at `frame` and forgets held keys (stop, choke all).
+    // Ends every sounding note at `frame` and forgets held keys (choke all, CC 120).
     void panic(uint32_t frame);
+    // STOP: the arpeggio's notes are released and its latch, pedal and toggle state forgotten; played keys that
+    // pass through keep sounding; Hold keeps its setting.
+    void stop(uint32_t frame);
     // Back to a new player's state, phrases kept: the settings, clock, chords, random sequence and note
     // identities start again, and sounding notes are forgotten without note-offs (CLAP reset).
     void reset();

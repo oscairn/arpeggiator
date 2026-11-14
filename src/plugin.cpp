@@ -438,7 +438,8 @@ struct Plugin {
                 if (kind == 0x80 || kind == 0x90) { if (rec) recorder.keyOff(recTick, m.data[1] & 127); player.keyOff(frame, ch, m.data[1] & 127, -1); return; }
                 // The player follows the pedal with the arpeggio off too, or a key released after it comes up would wait for it.
                 if (kind == 0xB0 && m.data[1] == 64) { player.sustain(frame, ch, m.data[2] >= 64); if (player.settings().on) return; }
-                if (kind == 0xB0 && (m.data[1] == 120 || m.data[1] == 123)) { player.advance(frame); recover(frame, out); }
+                if (kind == 0xB0 && m.data[1] == 123) { player.stop(frame); return; }  // STOP: the arp's note-offs only; no choke, and the CC is not forwarded
+                if (kind == 0xB0 && m.data[1] == 120) { player.advance(frame); recover(frame, out); }
                 player.advance(frame);
                 passMidi(m, frame, out);
                 return;
@@ -513,7 +514,7 @@ struct Plugin {
         }
         player.setSettings(settings());
         player.begin(clock, b->frames_count, sink);
-        if (stopped) recover(0, b->out_events);
+        if (stopped) player.stop(0);
         if (fromTransport && lastHadBeats && std::fabs(clock.beats - (lastBeats + lastFrames * lastBeatsPerFrame)) > 1e-3)
             player.relocate(0);
         lastHadBeats = fromTransport;
