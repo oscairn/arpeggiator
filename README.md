@@ -6,13 +6,17 @@ position in the chord, as walkers up and down the chord, as template notes that 
 as absolute keys, with controller and pitch-bend lanes alongside. A phrase can hold different
 patterns for one, two, three or more held keys.
 
-It aims to play everything a MONTAGE M / MODX M arpeggio does, so that arps converted from those
-performances (by [performance-converter](https://github.com/oscairn/performance-converter), on your
-own machine from your own installation) play the same. This repository contains no instrument data
+It aims to play everything the arpeggiator of a hardware workstation does, so that arps converted
+from such performances (by a separate converter, run on your own machine from your own
+installation) play the same. This repository contains no instrument data
 or phrases; it reads the open [phrase format](doc/phrase-format.md), which is also meant for writing
 your own.
 
-Status: early. See the [plan](doc/plan.md) for what is implemented, what is measured against the
+This project is independent and is not affiliated with or endorsed by any instrument manufacturer.
+It contains and distributes no manufacturer samples, presets, firmware or code. Product names, where
+they appear at all, belong to their owners.
+
+Status: early (version 0.1.8). See the [plan](doc/plan.md) for what is implemented, what is measured against the
 reference and what is not.
 
 ## Build

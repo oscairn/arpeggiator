@@ -4,7 +4,7 @@ Status: 2026-11-06. Owner: Jacob Schooley.
 
 A phrase-based arpeggiator for [Oscairn](https://github.com/oscairn/oscairn): a CLAP note effect
 that turns held keys into notes and controllers by playing a *phrase*, a short looped pattern whose
-notes refer to the held chord. The target is everything a MONTAGE M / MODX M arpeggio does, so that
+notes refer to the held chord. The target is everything a hardware workstation's arpeggio does, so that
 the performance converter can carry those arps over, and a phrase engine general enough to drive a
 motion-sequencer-style lane later. MIT licence, built from scratch: no open-source arpeggiator plays
 chord-relative phrases.
@@ -17,10 +17,9 @@ are produced on the user's machine from their own installation and are never com
 
 ### 1.1 Parameters
 
-Every arpeggio parameter of a MONTAGE M / MODX M Part and Performance, from the published Data
-List (MIDI parameter tables, Part `1p 00 06 00` arp block, Part `1p 00 01 00` switches, Part
-`1p 00 02 00`/`03 00` swing and rates, Common `06 00 06 00` arp block, scenes) and the Operation
-Manual's arpeggio pages. The plugin column is the CLAP parameter (section 4.3).
+Every arpeggio parameter of the target's Part and Performance, from its published MIDI parameter
+tables (the Part arp block, switches, swing and rates, the Common arp block, scenes) and its
+published manual's arpeggio pages. The plugin column is the CLAP parameter (section 4.3).
 
 | Reference parameter | Range | Plugin | Notes |
 | --- | --- | --- | --- |
@@ -309,8 +308,8 @@ each arpeggiator's state and as assets under `Assets/` in the archive, reference
 
 ## 6. Measuring against the reference
 
-The reference is the instrument's software (the macOS plugin), driven by a recorder that renders a
-performance file while playing timed notes and controllers (host tempo 120 BPM).
+The reference is the target instrument's own arpeggio playback, rendered offline by a recorder
+while playing timed notes and controllers (host tempo 120 BPM).
 
 - **Probe sound:** an FM Part with one sine carrier, instant attack, full sustain and instant
   release, velocity sensitivity at maximum. Onsets, pitch, level and note length are read per key
@@ -321,10 +320,9 @@ performance file while playing timed notes and controllers (host tempo 120 BPM).
   arp note (or a reference click); all other times are relative.
 - **Comparison:** the engine renders the same phrase file with the same settings and key events
   offline (`arp-render`); notes are matched in order.
-- **Order of work:** the most used settings in Jacob's factory and user performances first (counted
-  from the performance files: Key Sort, Velocity Original, Hold Off/On, Octave Range 0, Unit 100 %,
-  no quantize; arps such as `1/16 Up Oct1`, `MA_Pf Arp1`, `MA_ChordRandom2`, `1/16 Up/Down B Oct1`,
-  `MC_6/8 Ballad`), then each rule R1–R25.
+- **Order of work:** the most used settings in the converted performances first (counted from the
+  performance files: Key Sort, Velocity Original, Hold Off/On, Octave Range 0, Unit 100 %,
+  no quantize), then each rule R1–R25.
 
 **Gate (accepted by Jacob, decision 1):** per probe, every note matched; keys exact; onset times
 within 2 ms of the reference after alignment (recorder resolution about one I/O buffer, so
@@ -389,8 +387,7 @@ agrees with it except where noted:
   Oscairn's sessions give each part the harmony of its own input, so a chord from another Part is
   given at the graph level here.
   **Converted Performances (2026-11-06):** the converted-Performance steps run against Oscairn main
-  (9325875) with the converter's library as of 97a2c46 (`Jacob's Performances.olib`, Space Song 2,
-  five arpeggiators on a keyboard split). The test takes the arpeggiators from the nodes' role (the
+  (9325875) with a converted library (one Performance, five arpeggiators on a keyboard split). The test takes the arpeggiators from the nodes' role (the
   name suffix " Arp" for older conversions), plays each arpeggiating part alone with a chord inside
   its own zone with its arpeggio off (one chord, no repeated notes), counts the notes each saved
   arpeggiator sends in a graph of its own on a three- and a two-key chord (phrases play only for
