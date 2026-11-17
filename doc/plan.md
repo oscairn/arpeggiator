@@ -1,6 +1,6 @@
 # Oscairn Arpeggiator: plan
 
-Status: 2026-11-06. Owner: Jacob Schooley.
+Status: 2026-11-06.
 
 A phrase-based arpeggiator for [Oscairn](https://github.com/oscairn/oscairn): a CLAP note effect
 that turns held keys into notes and controllers by playing a *phrase*, a short looped pattern whose
@@ -62,7 +62,7 @@ published manual's arpeggio pages. The plugin column is the CLAP parameter (sect
 
 Each rule has a source: **Manual** (Operation Manual text), **Measured** (confirmed by recording the
 reference, section 6) or **To measure** (our working rule until a recording confirms or corrects it). Nothing is "done" until it is
-Measured or explicitly accepted by Jacob. Rules measured on a few points (R17's fitted window, R25's
+Measured or explicitly accepted by the owner. Rules measured on a few points (R17's fitted window, R25's
 root-fixed voicing on three chords) are accepted as they stand, with more probes later (decision 9).
 
 | # | Rule | Source |
@@ -78,7 +78,7 @@ root-fixed voicing on three chords) are accepted as they stand, with more probes
 | R9 | Velocity: the phrase's (Original) or the played key's (Thru), times Velocity Rate plus the slot offset; 0 becomes 1, above 127 becomes 127 | Measured: Original, Thru, rate 50 % (velocity judged where the probe can tell it, section 10) |
 | R10 | Gate: the phrase's gate times Gate Rate plus the slot offset; 0 becomes 1 | Measured: 50 % and 200 % (gate times) |
 | R11 | Unit Multiply scales event times and gates by 50, 66.7, 75, 100, 133.3, 150, 200, 266.7, 300 or 400 % | Measured: 66 % and 200 % |
-| R12 | Quantize moves events toward the Quantize Value grid by Strength; Swing delays the grid's even-numbered positions, with or without quantize strength | Swing timing Measured (+40, with strength 0 and 100); strength 25 and 50 Measured on `MA_Pf Arp1` (`q25_pf`, `q50_pf`: every note in time) |
+| R12 | Quantize moves events toward the Quantize Value grid by Strength; Swing delays the grid's even-numbered positions, with or without quantize strength | Swing timing Measured (+40, with strength 0 and 100); strength 25 and 50 Measured on a reference phrase (`q25_pf`, `q50_pf`: every note in time) |
 | R13 | Hold Off stops at the last release, ending sounding notes; On keeps the chord until the next gesture replaces it; Sync-Off ends sounding notes at the release but keeps the phrase position running silently and resumes in place | Measured (`uprel`, `holdon`, `syncoff`) |
 | R14 | Trigger Toggle: a gesture (keys pressed together) starts the arp, the next stops it | Measured (`toggle`) |
 | R15 | Loop Off: one pass per gesture | Measured (`loopoff`) |
@@ -324,7 +324,7 @@ while playing timed notes and controllers (host tempo 120 BPM).
   performance files: Key Sort, Velocity Original, Hold Off/On, Octave Range 0, Unit 100 %,
   no quantize), then each rule R1–R25.
 
-**Gate (accepted by Jacob, decision 1):** per probe, every note matched; keys exact; onset times
+**Gate (accepted by the owner, decision 1):** per probe, every note matched; keys exact; onset times
 within 2 ms of the reference after alignment (recorder resolution about one I/O buffer, so
 differences are judged relative to the first note of the same render); velocity within ±1 after
 calibration; gate length within 5 ms. A probe passes only if every note passes.
@@ -401,7 +401,7 @@ agrees with it except where noted:
   note capture with a **Make phrase** action would give retroactive capture; it should call the same
   conversion. Today the conversion exists twice (C++ in `src/record.cpp` for the plugin, Python in
   `tools/midi_to_phrase.py`); moving MIDI import into the C++ library as the `phrase.import-midi`
-  operation RFC 0032 describes is milestone M5. Whether both recorders are kept is Jacob's call.
+  operation RFC 0032 describes is milestone M5. Whether both recorders are kept is the owner's call.
 - **`author` and `tags`** are in the format before version 1 is frozen.
 - **Style tracks (R25):** root-fixed voices follow a rule measured on three chords; root-transposed
   voices remain an approximation built from chord-tone rules (KD1).
@@ -413,20 +413,20 @@ reproduce, where in the code. Entries are added as measurements find them and re
 
 | # | What | Size and where | Cause | Status | Reproduce | Code |
 | --- | --- | --- | --- | --- | --- | --- |
-| KD1 | Style tracks (R25): root-transposed voices move by root plus chord-tone rules, not the reference's transposition tables; root-fixed voices follow a rule measured only for table 2 on three chords | Root-transposed style tracks on chords other than their source chord, and root-fixed tracks with other tables or chords (unmeasured). `MA_Soul 1 _C` now matches every key and time on C, Dm7 and G7 (`soul_c2`, `soul_dm7_2`, `soul_g7_2` pass); before: Dm7 27 of 36 notes, G7 none | Tables unknown; root-fixed rule fitted to three chords | Unresolved for root-transposed and other tables | `arp-render` a converted style phrase with root-transposed tracks on a chord other than its source chord | `Player::playStyle`, `Player::playStyleGroup` |
+| KD1 | Style tracks (R25): root-transposed voices move by root plus chord-tone rules, not the reference's transposition tables; root-fixed voices follow a rule measured only for table 2 on three chords | Root-transposed style tracks on chords other than their source chord, and root-fixed tracks with other tables or chords (unmeasured). a reference phrase now matches every key and time on C, Dm7 and G7 (`soul_c2`, `soul_dm7_2`, `soul_g7_2` pass); before: Dm7 27 of 36 notes, G7 none | Tables unknown; root-fixed rule fitted to three chords | Unresolved for root-transposed and other tables | `arp-render` a converted style phrase with root-transposed tracks on a chord other than its source chord | `Player::playStyle`, `Player::playStyleGroup` |
 | KD2 | A chord change while style notes sound does not re-pitch or stop them (the `rule … RETRIGGER` field is read but unused) | Style tracks only | Not implemented | Unresolved | Change the chord mid-note on a style phrase | `Player::playStyle` |
 | KD3 | Chord recognition (for chord filters and style tracks) uses the plugin's own interval table; unusual voicings may be named differently | Chord filters with partial masks, style tracks | Own design | Unresolved, to measure | Hold an unusual voicing on a style phrase | `Player::detectChord` |
-| KD4 | Walkers have no octave ceiling: octaves plus the full Octave Range are walked | Walker tracks with many octaves and a large positive Octave Range; the reference may limit the span (to measure) | Jacob's rule: no limit beyond parameter ranges | Deliberate | `octaves 4` phrase with Octave Range +3 | `Player::playEvent`, walker branch |
+| KD4 | Walkers have no octave ceiling: octaves plus the full Octave Range are walked | Walker tracks with many octaves and a large positive Octave Range; the reference may limit the span (to measure) | the owner's rule: no limit beyond parameter ranges | Deliberate | `octaves 4` phrase with Octave Range +3 | `Player::playEvent`, walker branch |
 | KD5 | A key-count remapping field in the instrument's arp files (unused by every factory file) has no equivalent | None in factory content | No data uses it | Deliberate | The converter's report lists any file that sets it | `performance-converter`, `perfconv/arp.py` |
 | KD6 | In hosts without `oscairn.beat`, Sync Quantize with the transport stopped aligns to the instance's own clock, not a shared grid (in Oscairn it uses the host's free-running beat) | Other hosts only: parts started together on a stopped transport may differ by up to one grid step | Such hosts give no shared beat while stopped | Deliberate | `tests/test_plugin.cpp`, free-beat case with the plain host | `Plugin::process` (free beat), `Player::startPhrase` |
 | KD9 | Pushed phrases take over a block after the main thread parses them, not at the event's sample | All pushes | Parsing must not run unbounded on the audio thread | Deliberate | `tests/test_plugin.cpp`, push case | `Plugin::sysex`, `Plugin::mainThread` |
 | KD10 | SysEx other than the push message is dropped, not passed on | Any SysEx on the note input | Keeps private messages inside the plugin | Deliberate | Send any SysEx through | `Plugin::sysex` |
-| KD11 | Literal-note and fallback events of user arps recorded on the instrument are not converted | User arps made with the instrument's recording (none in Jacob's set) | No sample files to verify their layout | Unresolved | Convert such a file; the report names it | `perfconv/arp.py` |
+| KD11 | Literal-note and fallback events of user arps recorded on the instrument are not converted | User arps made with the instrument's recording (none in the owner's set) | No sample files to verify their layout | Unresolved | Convert such a file; the report names it | `perfconv/arp.py` |
 | KD12 | A 4-byte controller record in 18 factory arps is skipped | Those 18 phrases | Meaning unknown | Unresolved | Converter report (`event B2 skipped`) | `perfconv/arp.py` |
 | KD13 | Random walkers and random phrases play a different random sequence | Every `random` track (`cr`, `cr_hi`, `q50`); timing matches, keys cannot | The plugin's own seeded generator, so renders repeat exactly | Deliberate | `cr_hi` probe | `Player::nextRandom` |
 | KD18 | The reference applies a Part's Note Limits (and Note Shift) to what its arpeggio plays: every Part's arpeggio hears every key. In Oscairn a part's zones filter the keys before the plugin | Performances with arpeggio Parts split by note limits: two parts limited to 0–79 and 80–127 play one walk over all four held keys, each sounding its own range (`sync2`, `sync2_off`) | Oscairn's part input filters keys | Handled by the converter: with an arpeggio, the limits and Note Shift go on the note wire after the arpeggiator and the part's input keeps only the velocity limits (velocity limits after the arpeggio are not measured). Whether Oscairn filters on that wire as at a part's input is not verified | Two parts with arps and split note limits, keys in both ranges | `performance-converter`, `perfconv/performance.py` |
-| KD19 | `bounce2`: the reference leaves out the phrase's first event (`p0-1`) on every pass; the engine plays it | `MA_Melody12` (`bounce2`), both passes | Unknown (one probe) | Unresolved | `bounce2` probe | `Player::playEvent` (bounce2) |
-| KD20 | `bounce`: three notes start 12–14 ms earlier in the reference, and last as much longer, than the engine plays them | `MA_Tracker 1 Synth1 _N` at 1.30, 2.06 and 4.30 s of `bounce` | Unknown: possibly the analysis (overlapping notes of neighbouring keys) | Unresolved | `bounce` probe | — |
+| KD19 | `bounce2`: the reference leaves out the phrase's first event (`p0-1`) on every pass; the engine plays it | a reference phrase (`bounce2`), both passes | Unknown (one probe) | Unresolved | `bounce2` probe | `Player::playEvent` (bounce2) |
+| KD20 | `bounce`: three notes start 12–14 ms earlier in the reference, and last as much longer, than the engine plays them | a reference phrase at 1.30, 2.06 and 4.30 s of `bounce` | Unknown: possibly the analysis (overlapping notes of neighbouring keys) | Unresolved | `bounce` probe | — |
 | KD21 | Chord Source Harmony plays on the host's chord (`oscairn.harmony`) instead of the held keys; the reference has no such setting | Only with Chord Source set to Harmony; off by default and in converted Performances | An extension for Oscairn (decision 10) | Deliberate | `tests/test_player.cpp`, `chord_source_harmony_…` | `Player::chordKeys`, `Player::setHarmony` |
 
 ## 10. Measurement results
@@ -549,7 +549,7 @@ Reading the failures (other than the known differences above):
   channels or keys, which the recorder plays on one. Down walkers, the octave of absolute template
   notes under Output Octave, and Fixed SD/BD on a Drum Part.
 
-## 11. Decisions for Jacob
+## 11. Decisions for the owner
 
 1. Measurement gate (section 6): 2 ms onset, keys exact, velocity ±1, gate 5 ms. **Accepted**
    (2026-11-02).

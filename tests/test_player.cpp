@@ -650,7 +650,7 @@ TEST(timing_is_the_same_at_every_sample_rate) {
 }
 
 TEST(root_fixed_style_voices_move_together_to_the_held_chord) {
-    // Measured (MA_Soul 1 _C): G B E G written for C maj7, root fixed, plays G C E G on C, A C F A on
+    // Measured (a reference phrase): G B E G written for C maj7, root fixed, plays G C E G on C, A C F A on
     // D minor 7 and F B D F on G 7: tones in the voices' register, four-tone chords without their root,
     // every tone covered, least motion, ties upward.
     auto ph = phrase("track\n  select style\n  style 0 2\n  rule low 1 2 0 7 0 127 1\n  rule mid 1 2 0 7 0 127 1\n"
@@ -663,7 +663,7 @@ TEST(root_fixed_style_voices_move_together_to_the_held_chord) {
 }
 
 TEST(an_accent_started_mid_phrase_silences_normal_notes_for_a_quarter) {
-    // Measured (MA_House 14): normal-track notes in the accent's first quarter note are left out when the
+    // Measured (a reference phrase): normal-track notes in the accent's first quarter note are left out when the
     // accent starts after the phrase; one starting with the phrase leaves them in.
     auto ph = phrase("track\n  note 0 k40 v100 g10\n  note 600 k41 v100 g10\n  note 840 k42 v100 g10\n  note 1200 k43 v100 g10\nend\n"
                      "track\n  accent\n  note 0 k90 v100 g10\nend\n", "length 1920");

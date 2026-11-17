@@ -130,7 +130,7 @@ An `asset` line names the Oscairn library asset (RFC 0009) a slot's phrase is a 
 slot (0–7), LIBRARY the library ID (`user` for the user library; no spaces, up to 63 bytes),
 SHA256 the file's 64 lowercase hex digits or `-` when not known, and PATH the rest of the line
 after one space: the path in the library, which may contain spaces (up to 1023 bytes). Example:
-`asset 0 user 68dcea002e7236558e1afcb3655e0a55f65ee550063d92cf14a380778348bf19 68dcea002e723655/MA_SynArp21.ophr`.
+`asset 0 user 68dcea002e7236558e1afcb3655e0a55f65ee550063d92cf14a380778348bf19 68dcea002e723655/example.ophr`.
 The plugin declares each slot's asset to the host as optional (`oscairn.asset-dependencies/draft-2`;
 slots sharing one asset list it once). On loading the state it asks the host for the file
 (`oscairn.assets`): found, the file's phrase is installed in the slot (and an unknown hash is
