@@ -32,6 +32,7 @@ add_executable(plugin_tests tests/test_plugin.cpp)
 target_link_libraries(plugin_tests PRIVATE clap_headers ${CMAKE_DL_LIBS})
 add_dependencies(plugin_tests oscairn_arpeggiator)
 add_test(NAME plugin COMMAND plugin_tests $<TARGET_FILE:oscairn_arpeggiator>)
+add_test(NAME saved_states COMMAND plugin_tests $<TARGET_FILE:oscairn_arpeggiator> ${CMAKE_SOURCE_DIR}/tests/states)
 
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)

@@ -2,7 +2,8 @@
 // Loads the built plugin and checks it as a host would: descriptor and ports, parameters, notes in and
 // out at any block size, state round trip with phrases, phrase assets (found, or missing with the embedded
 // copy playing), phrases pushed on the note input, and main-thread calls running while another thread
-// processes (for ThreadSanitizer).
+// processes (for ThreadSanitizer). With a states directory, the states saved by each published version open with
+// their parameters (tests/states).
 #include <clap/clap.h>
 #include <dlfcn.h>
 #include <oscairn-clap/assets.h>
@@ -15,6 +16,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -204,10 +206,45 @@ std::vector<int> ons(const OutEvents& o) {
     return k;
 }
 
+// The states saved by each published version (tests/states/<version>/<name>.state): each opens in this build,
+// renders a block, and reads back its parameters: the ones it sets, and every other at its default.
+struct SavedState { const char* name; std::vector<std::pair<clap_id, double>> set; };
+const SavedState kSavedStates[] = {
+    {"default", {}},
+    {"swing-octave", {{11, 30}, {14, 1}}},  // Swing 30, Octave Range 1
+    {"hold-direct", {{2, 2}, {3, 2}, {5, 1}}},  // Hold On, Key Mode Direct, Trigger Toggle
+};
+const char* const kSavedVersions[] = {"0.1.3", "0.1.4", "0.1.8"};
+
+void savedStates(const clap_plugin_factory_t* factory, const std::string& dir) {
+    for (const char* version : kSavedVersions) {
+        for (const SavedState& s : kSavedStates) {
+            const std::string path = dir + "/" + version + "/" + s.name + ".state";
+            std::ifstream file(path, std::ios::binary);
+            CHECK(file.good());
+            const std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            Instance in(factory);
+            CHECK(load(in, data));
+            OutEvents out;
+            in.run(out, {}, 480, 480);
+            CHECK(in.status != CLAP_PROCESS_ERROR);
+            CHECK(in.params->count(in.p) == 48);
+            for (uint32_t i = 0; i < in.params->count(in.p); ++i) {
+                clap_param_info_t info{};
+                CHECK(in.params->get_info(in.p, i, &info));
+                double want = info.default_value;
+                for (const auto& [id, value] : s.set) if (id == info.id) want = value;
+                double got = -1;
+                CHECK(in.params->get_value(in.p, info.id, &got) && got == want);
+            }
+        }
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc < 2) { std::printf("usage: plugin_tests PLUGIN.clap\n"); return 2; }
+    if (argc < 2) { std::printf("usage: plugin_tests PLUGIN.clap [STATES_DIR]\n"); return 2; }
     void* lib = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
     if (!lib) { std::printf("dlopen: %s\n", dlerror()); return 1; }
     auto* entry = static_cast<const clap_plugin_entry_t*>(dlsym(lib, "clap_entry"));
@@ -215,6 +252,13 @@ int main(int argc, char** argv) {
     auto* factory = static_cast<const clap_plugin_factory_t*>(entry->get_factory(CLAP_PLUGIN_FACTORY_ID));
     CHECK(factory && factory->get_plugin_count(factory) == 1);
     CHECK(!std::strcmp(factory->get_plugin_descriptor(factory, 0)->id, "org.oscairn.arpeggiator"));
+    if (argc > 2) {  // the saved states only (the CMake test saved_states)
+        savedStates(factory, argv[2]);
+        entry->deinit();
+        dlclose(lib);
+        std::printf("saved states %s (%d failed checks)\n", failures ? "FAIL" : "ok", failures);
+        return failures ? 1 : 0;
+    }
 
     {  // ports and parameters
         Instance in(factory);
